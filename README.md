@@ -117,6 +117,3 @@ You can tune the RAG pipeline and model parameters without changing code:
 │   └── Dockerfile
 └── docker-compose.yml
 ```
-
-## License
-MIT
