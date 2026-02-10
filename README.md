@@ -1,7 +1,6 @@
 # 🌐 English | [Русский](README.ru.md)
 
 # High-Precision RAG Chunking Engine
-
 A specialized RAG (Retrieval-Augmented Generation) system designed for detailed technical documentation. It features **smart table-aware chunking**, **strict source citations**, and a **streaming chat interface** with context awareness.
 
 ![Tech Stack](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white)
