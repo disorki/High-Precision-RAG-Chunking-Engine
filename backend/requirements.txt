@@ -1,0 +1,29 @@
+# FastAPI and Server
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+
+# Database
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+pgvector==0.2.5
+alembic==1.13.1
+
+# LangChain and AI
+langchain==0.1.6
+langchain-community==0.0.19
+langchain-core==0.1.22
+
+# PDF Processing
+pypdf==4.0.1
+
+# HTTP Client
+httpx==0.26.0
+aiohttp==3.9.3
+
+# Utilities
+pydantic==2.6.1
+pydantic-settings==2.1.0
+email-validator==2.1.0
+python-dotenv==1.0.1
+numpy==1.26.4

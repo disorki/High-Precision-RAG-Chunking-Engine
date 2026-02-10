@@ -1,0 +1,104 @@
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
+
+from app.database import engine, Base
+from app.routers import upload_router, chat_router
+from app.config import get_settings
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+settings = get_settings()
+
+
+def run_migrations():
+    """Run Alembic migrations programmatically."""
+    try:
+        from alembic.config import Config
+        from alembic import command
+        
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Alembic migrations applied successfully")
+    except Exception as e:
+        logger.warning(f"Alembic migration failed: {e}. Falling back to create_all.")
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created via create_all (fallback)")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler."""
+    # Startup
+    logger.info("Starting RAG API server...")
+    
+    # Run database migrations
+    run_migrations()
+    
+    # Ensure upload directory exists
+    os.makedirs(settings.upload_dir, exist_ok=True)
+    logger.info(f"Upload directory: {settings.upload_dir}")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down RAG API server...")
+
+
+# Create FastAPI app
+app = FastAPI(
+    title="Intelligent RAG System",
+    description="AI-powered Knowledge Base with PDF upload and chat",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://frontend:3000"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Session-Id", "X-Sources"]
+)
+
+# Include routers
+app.include_router(upload_router)
+app.include_router(chat_router)
+
+# Mount static files for uploaded PDFs (optional, for direct access)
+if os.path.exists(settings.upload_dir):
+    app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
+
+
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {
+        "name": "Intelligent RAG System API",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "database": "connected",
+        "ollama_url": settings.ollama_base_url
+    }
