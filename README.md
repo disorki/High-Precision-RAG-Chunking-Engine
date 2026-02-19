@@ -10,18 +10,18 @@ A specialized RAG (Retrieval-Augmented Generation) system designed for detailed 
 
 ## key Features
 
-### 🧠 High-Precision RAG
+### High-Precision RAG
 - **Table-Aware Chunking**: Preserves Markdown tables and data structures during ingestion.
 - **Smart Context Retrieval**: Filters chunks by relevance threshold and sorts them by document order for coherent reading.
 - **Strict Citations**: Every fact in the response is cited with `[Page X]` references.
 - **Query Rewriting**: Automatically converts conversational questions (e.g., "what about memory?") into precise technical search queries.
 
-### 💬 Advanced Chat
+### Advanced Chat
 - **Streaming Responses**: Real-time token streaming via Server-Sent Events (SSE).
 - **History Compression**: Automatically summarizes/truncates old chat history to maintain infinite conversation within context limits.
 - **Context Window**: Optimized for large contexts (up to 16k tokens) to handle complex docs.
 
-### 🛠 Technical Stack
+### Technical Stack
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy, LangChain.
 - **Vector DB**: PostgreSQL 16 with `pgvector` extension.
 - **LLM Engine**: Ollama (running locally).
