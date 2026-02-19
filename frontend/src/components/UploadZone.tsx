@@ -8,13 +8,35 @@ interface Document {
     filename: string;
     original_filename: string;
     status: "processing" | "ready" | "failed";
+    processing_stage?: string;
+    processing_progress?: number;
+    error_message?: string;
     page_count?: number;
     created_at: string;
 }
 
 interface UploadZoneProps {
     onDocumentUploaded: (doc: Document) => void;
-    onDocumentReady: (docId: number) => void;
+    onDocumentReady: (docId: number, pageCount: number) => void;
+}
+
+const SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".xlsx", ".txt"];
+const ACCEPT_STRING = ".pdf,.docx,.xlsx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain";
+
+const stageLabels: Record<string, string> = {
+    uploading: "Загрузка файла...",
+    checking_ollama: "Проверка AI сервиса...",
+    extracting_text: "Извлечение текста...",
+    chunking: "Разбиение на чанки...",
+    generating_embeddings: "Генерация эмбеддингов...",
+    storing_vectors: "Сохранение векторов...",
+    completed: "Готово!",
+    failed: "Ошибка обработки"
+};
+
+function isSupported(filename: string): boolean {
+    const ext = filename.toLowerCase().split(".").pop();
+    return ext ? SUPPORTED_EXTENSIONS.includes(`.${ext}`) : false;
 }
 
 export default function UploadZone({
@@ -28,6 +50,7 @@ export default function UploadZone({
         message: string;
     }>({ type: null, message: "" });
     const [processingDocs, setProcessingDocs] = useState<number[]>([]);
+    const [processingInfo, setProcessingInfo] = useState<Record<number, { stage: string; progress: number }>>({});
 
     useEffect(() => {
         if (processingDocs.length === 0) return;
@@ -38,14 +61,42 @@ export default function UploadZone({
                     const response = await fetch(`/api/documents/${docId}`);
                     if (response.ok) {
                         const doc = await response.json();
+
+                        // Update processing info for real-time progress
+                        if (doc.status === "processing") {
+                            setProcessingInfo(prev => ({
+                                ...prev,
+                                [docId]: {
+                                    stage: doc.processing_stage || "uploading",
+                                    progress: doc.processing_progress || 0
+                                }
+                            }));
+                        }
+
                         if (doc.status === "ready") {
-                            onDocumentReady(docId);
+                            onDocumentReady(docId, doc.page_count || 0);
                             setProcessingDocs((prev) => prev.filter((id) => id !== docId));
+                            setProcessingInfo(prev => {
+                                const next = { ...prev };
+                                delete next[docId];
+                                return next;
+                            });
+                            setUploadStatus({
+                                type: "success",
+                                message: `Документ обработан: ${doc.chunk_count || '?'} чанков`,
+                            });
                         } else if (doc.status === "failed") {
                             setProcessingDocs((prev) => prev.filter((id) => id !== docId));
+                            setProcessingInfo(prev => {
+                                const next = { ...prev };
+                                delete next[docId];
+                                return next;
+                            });
                             setUploadStatus({
                                 type: "error",
-                                message: `Processing failed: ${doc.error_message || "Unknown error"}`,
+                                message: doc.error_message
+                                    ? `Ошибка: ${doc.error_message.slice(0, 200)}`
+                                    : "Ошибка обработки документа",
                             });
                         }
                     }
@@ -96,13 +147,16 @@ export default function UploadZone({
     const handleFiles = async (files: FileList) => {
         const file = files[0];
 
-        if (!file.name.toLowerCase().endsWith(".pdf")) {
-            setUploadStatus({ type: "error", message: "Only PDF files are supported" });
+        if (!isSupported(file.name)) {
+            setUploadStatus({
+                type: "error",
+                message: "Поддерживаемые форматы: PDF, Word (.docx), Excel (.xlsx), Text (.txt)"
+            });
             return;
         }
 
         if (file.size > 50 * 1024 * 1024) {
-            setUploadStatus({ type: "error", message: "File size must be less than 50MB" });
+            setUploadStatus({ type: "error", message: "Размер файла не должен превышать 50MB" });
             return;
         }
 
@@ -134,16 +188,24 @@ export default function UploadZone({
             });
 
             setProcessingDocs((prev) => [...prev, data.document_id]);
-            setUploadStatus({ type: "success", message: "Document uploaded! Processing..." });
+            setProcessingInfo(prev => ({
+                ...prev,
+                [data.document_id]: { stage: "uploading", progress: 0 }
+            }));
+            setUploadStatus({ type: "success", message: "Документ загружен! Обработка..." });
         } catch (error) {
             setUploadStatus({
                 type: "error",
-                message: error instanceof Error ? error.message : "Upload failed",
+                message: error instanceof Error ? error.message : "Ошибка загрузки",
             });
         } finally {
             setIsUploading(false);
         }
     };
+
+    // Get the combined processing info for display
+    const activeProcessing = processingDocs.map(docId => processingInfo[docId]).filter(Boolean);
+    const currentStage = activeProcessing.length > 0 ? activeProcessing[0] : null;
 
     return (
         <div className="space-y-4">
@@ -156,7 +218,7 @@ export default function UploadZone({
             >
                 <input
                     type="file"
-                    accept=".pdf"
+                    accept={ACCEPT_STRING}
                     onChange={handleFileInput}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
                     disabled={isUploading}
@@ -176,10 +238,10 @@ export default function UploadZone({
 
                     <div>
                         <p className="text-[var(--text-primary)] font-medium">
-                            {isUploading ? "Uploading..." : "Drop PDF here"}
+                            {isUploading ? "Загрузка..." : "Перетащите файл сюда"}
                         </p>
                         <p className="text-[var(--text-tertiary)] text-sm mt-1">
-                            or click to browse
+                            PDF, Word, Excel, TXT · до 50MB
                         </p>
                     </div>
                 </div>
@@ -203,12 +265,24 @@ export default function UploadZone({
                     <Loader2 className="w-4 h-4 text-violet-400 animate-spin flex-shrink-0" />
                     <div className="flex-1">
                         <p className="text-sm text-violet-300 font-medium">
-                            Processing {processingDocs.length} document(s)
+                            {currentStage
+                                ? stageLabels[currentStage.stage] || "Обработка..."
+                                : "Обработка..."
+                            }
                         </p>
                         <div className="mt-2">
                             <div className="progress-bar">
-                                <div className="progress-fill" style={{ width: '66%' }}></div>
+                                <div
+                                    className="progress-fill"
+                                    style={{
+                                        width: `${currentStage?.progress || 5}%`,
+                                        transition: 'width 0.5s ease-in-out'
+                                    }}
+                                ></div>
                             </div>
+                            <p className="text-xs text-[var(--text-tertiary)] mt-1">
+                                {currentStage?.progress || 0}%
+                            </p>
                         </div>
                     </div>
                 </div>

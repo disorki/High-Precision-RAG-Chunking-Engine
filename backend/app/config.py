@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     context_max_tokens: int = 6000  # Max tokens for context window
     history_max_chars: int = 3000  # Max chars for chat history
     
+    # Retry settings
+    embedding_retry_count: int = 3
+    embedding_retry_delay: float = 1.0  # Base delay in seconds (exponential backoff)
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

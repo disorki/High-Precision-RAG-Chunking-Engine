@@ -14,8 +14,10 @@ langchain==0.1.6
 langchain-community==0.0.19
 langchain-core==0.1.22
 
-# PDF Processing
+# Document Processing
 pypdf==4.0.1
+python-docx==1.1.0
+openpyxl==3.1.2
 
 # HTTP Client
 httpx==0.26.0

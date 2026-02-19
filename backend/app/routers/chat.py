@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
-# System prompt template for RAG
-SYSTEM_PROMPT = """You are a precise document analyst. Your task is to answer user questions STRICTLY based on the provided context.
+# System prompt template for RAG (Step 1: generate answer in English for best quality)
+SYSTEM_PROMPT = """You are a precise document analyst. Answer the user's question STRICTLY based on the provided context.
 
 CONTEXT FROM DOCUMENT:
 {context}
@@ -27,12 +27,43 @@ INSTRUCTIONS:
 1. Answer ONLY using the provided context. Do NOT add information from your training data.
 2. Structure your answer clearly: use bullet points, numbered lists, or short paragraphs.
 3. For TABLES: identify columns/rows, quote exact values with units (e.g., "Flash: 16KB").
-4. ALWAYS cite the source page: "[Стр. X]" or "[Page X]" after each fact.
+4. ALWAYS cite the source page: "[Page X]" after each fact.
 5. If context is partial, state what you found and what is missing.
-6. If NO relevant info exists, say: "В предоставленном контексте информация не найдена."
-7. ALWAYS respond in the SAME LANGUAGE as the user's question (Russian → Russian, English → English).
-8. Be concise. Avoid repeating the question. Go straight to the answer.
-9. If the user asks to compare or list, format as a table when appropriate."""
+6. If NO relevant info exists, say: "The requested information was not found in the provided context."
+7. Be concise. Avoid repeating the question. Go straight to the answer.
+8. If the user asks to compare or list, format as a table when appropriate.
+9. Respond in English for maximum accuracy."""
+
+# Translation prompt (Step 2: translate to user's language)
+TRANSLATE_PROMPT = """Translate the following text to {target_language}. 
+Keep ALL formatting (bullet points, tables, numbered lists, markdown).
+Keep technical terms, model names, and numbers unchanged.
+Keep page citations like "[Page X]" but translate the word "Page" (e.g., "[Стр. X]" for Russian).
+Output ONLY the translation, nothing else.
+
+Text to translate:
+{text}"""
+
+
+def detect_language(text: str) -> str:
+    """Detect the language of the user's message based on character analysis."""
+    # Count Cyrillic characters
+    cyrillic_count = sum(1 for c in text if '\u0400' <= c <= '\u04FF')
+    latin_count = sum(1 for c in text if 'a' <= c.lower() <= 'z')
+    
+    # Chinese/Japanese/Korean
+    cjk_count = sum(1 for c in text if '\u4e00' <= c <= '\u9fff' or '\u3040' <= c <= '\u30ff')
+    
+    total = cyrillic_count + latin_count + cjk_count
+    if total == 0:
+        return "English"
+    
+    if cyrillic_count / max(total, 1) > 0.3:
+        return "Russian"
+    if cjk_count / max(total, 1) > 0.3:
+        return "Chinese"
+    
+    return "English"
 
 
 def get_client_ip(request: Request) -> str:
@@ -120,12 +151,13 @@ def prepare_chat_history(messages: list, max_total_chars: int = None) -> list:
 async def generate_stream(
     prompt: str,
     context: str,
-    chat_history: list = None
+    chat_history: list = None,
+    user_language: str = "English"
 ):
     """
-    Generate streaming response from Ollama.
-    The model responds directly in the user's language (no separate translation step).
-    Includes chat history for conversation memory.
+    Two-step generation:
+    1. Generate answer in English (best quality from the model)
+    2. If user's language is not English, translate and stream the result
     
     Yields Server-Sent Events formatted chunks.
     """
@@ -134,45 +166,110 @@ async def generate_stream(
     # Build messages with history
     messages = [{"role": "system", "content": system_prompt}]
     
-    # Add chat history (last 10 messages for context)
     if chat_history:
         for msg in chat_history[-10:]:
             messages.append({"role": msg["role"], "content": msg["content"]})
     
-    # Add current user message
     messages.append({"role": "user", "content": prompt})
     
+    needs_translation = user_language.lower() != "english"
+    
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST",
-                f"{settings.ollama_base_url}/api/chat",
-                json={
-                    "model": settings.chat_model,
-                    "messages": messages,
-                    "stream": True,
-                    "options": {
-                        "num_ctx": settings.chat_num_ctx,
-                        "temperature": settings.chat_temperature,
-                        "top_k": settings.chat_top_k,
-                        "top_p": settings.chat_top_p,
+        if not needs_translation:
+            # English user — stream directly (single step)
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"{settings.ollama_base_url}/api/chat",
+                    json={
+                        "model": settings.chat_model,
+                        "messages": messages,
+                        "stream": True,
+                        "options": {
+                            "num_ctx": settings.chat_num_ctx,
+                            "temperature": settings.chat_temperature,
+                            "top_k": settings.chat_top_k,
+                            "top_p": settings.chat_top_p,
+                        }
                     }
-                }
-            ) as response:
-                response.raise_for_status()
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if line:
+                            try:
+                                data = json.loads(line)
+                                if "message" in data and "content" in data["message"]:
+                                    content = data["message"]["content"]
+                                    yield f"data: {json.dumps({'content': content})}\n\n"
+                                if data.get("done", False):
+                                    break
+                            except json.JSONDecodeError:
+                                continue
                 
-                async for line in response.aiter_lines():
-                    if line:
-                        try:
-                            data = json.loads(line)
-                            if "message" in data and "content" in data["message"]:
-                                content = data["message"]["content"]
-                                yield f"data: {json.dumps({'content': content})}\n\n"
-                            
-                            if data.get("done", False):
-                                break
-                        except json.JSONDecodeError:
-                            continue
+                yield f"data: {json.dumps({'done': True})}\n\n"
+        else:
+            # Non-English user — two-step: generate then translate
+            
+            # Step 1: Generate answer in English (non-streaming for full text)
+            logger.info(f"Step 1: Generating answer in English...")
+            yield f"data: {json.dumps({'status': 'thinking'})}\n\n"
+            
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                response = await client.post(
+                    f"{settings.ollama_base_url}/api/chat",
+                    json={
+                        "model": settings.chat_model,
+                        "messages": messages,
+                        "stream": False,
+                        "options": {
+                            "num_ctx": settings.chat_num_ctx,
+                            "temperature": settings.chat_temperature,
+                            "top_k": settings.chat_top_k,
+                            "top_p": settings.chat_top_p,
+                        }
+                    }
+                )
+                response.raise_for_status()
+                english_answer = response.json().get("message", {}).get("content", "")
+            
+            if not english_answer:
+                yield f"data: {json.dumps({'error': 'Empty response from model'})}\n\n"
+                return
+            
+            logger.info(f"Step 1 done ({len(english_answer)} chars). Step 2: Translating to {user_language}...")
+            
+            # Step 2: Translate to user's language (streaming)
+            translate_prompt = TRANSLATE_PROMPT.format(
+                target_language=user_language,
+                text=english_answer
+            )
+            
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"{settings.ollama_base_url}/api/generate",
+                    json={
+                        "model": settings.chat_model,
+                        "prompt": translate_prompt,
+                        "stream": True,
+                        "options": {
+                            "temperature": 0.2,
+                            "num_ctx": settings.chat_num_ctx,
+                        }
+                    }
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if line:
+                            try:
+                                data = json.loads(line)
+                                if "response" in data:
+                                    content = data["response"]
+                                    yield f"data: {json.dumps({'content': content})}\n\n"
+                                if data.get("done", False):
+                                    break
+                            except json.JSONDecodeError:
+                                continue
             
             yield f"data: {json.dumps({'done': True})}\n\n"
                             
@@ -324,9 +421,13 @@ async def chat(
         raw_history = [{"role": m.role, "content": m.content} for m in existing_messages[:-1]]
         chat_history = prepare_chat_history(raw_history)
         
+        # Detect user language for two-step translation
+        user_language = detect_language(request.message)
+        logger.info(f"Detected user language: {user_language}")
+        
         # Return streaming response
         return StreamingResponse(
-            generate_stream(request.message, context, chat_history),
+            generate_stream(request.message, context, chat_history, user_language),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",

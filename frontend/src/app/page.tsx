@@ -14,6 +14,7 @@ interface Document {
     status: "processing" | "ready" | "failed";
     processing_stage?: string;
     processing_progress?: number;
+    error_message?: string;
     page_count?: number;
     chunk_count?: number;
     created_at: string;
@@ -127,6 +128,20 @@ export default function Home() {
         }
     };
 
+    const handleDeleteDocument = (docId: number) => {
+        setDocuments(prev => prev.filter(d => d.id !== docId));
+        if (selectedDocument?.id === docId) {
+            setSelectedDocument(null);
+            setActiveTab("upload");
+        }
+        // Clean up chat state for deleted document
+        setChatStateMap(prev => {
+            const next = { ...prev };
+            delete next[docId];
+            return next;
+        });
+    };
+
     return (
         <main className="min-h-screen relative">
             {/* Aurora Background */}
@@ -170,7 +185,7 @@ export default function Home() {
                                     <h2 className="text-lg font-semibold text-[var(--text-primary)]">
                                         Upload Document
                                     </h2>
-                                    <p className="text-xs text-[var(--text-tertiary)]">PDF files up to 50MB</p>
+                                    <p className="text-xs text-[var(--text-tertiary)]">PDF, Word, Excel, TXT · до 50MB</p>
                                 </div>
                             </div>
                             <UploadZone
@@ -195,7 +210,8 @@ export default function Home() {
                                 documents={documents}
                                 selectedDocument={selectedDocument}
                                 onSelectDocument={handleSelectDocument}
-                                onViewPdf={() => setShowPdf(true)}
+                                onViewFile={() => setShowPdf(true)}
+                                onDeleteDocument={handleDeleteDocument}
                             />
                         </div>
                     </div>
@@ -244,8 +260,8 @@ export default function Home() {
                                                         <Upload className="w-5 h-5 text-violet-400" />
                                                     </div>
                                                     <div>
-                                                        <p className="font-medium text-[var(--text-primary)]">Upload PDF</p>
-                                                        <p className="text-sm text-[var(--text-tertiary)]">Drag & drop or browse</p>
+                                                        <p className="font-medium text-[var(--text-primary)]">Загрузить документ</p>
+                                                        <p className="text-sm text-[var(--text-tertiary)]">Перетащите или выберите файл</p>
                                                     </div>
                                                 </div>
 
@@ -288,7 +304,7 @@ export default function Home() {
 
             {/* PDF Viewer Modal */}
             {showPdf && selectedDocument && (
-                <PdfViewer
+                <FileViewer
                     documentId={selectedDocument.id}
                     filename={selectedDocument.original_filename}
                     onClose={() => setShowPdf(false)}

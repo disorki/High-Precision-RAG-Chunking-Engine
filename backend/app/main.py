@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
+import httpx
 
 from app.database import engine, Base
 from app.routers import upload_router, chat_router
@@ -34,6 +35,43 @@ def run_migrations():
         logger.info("Database tables created via create_all (fallback)")
 
 
+async def check_ollama_on_startup():
+    """Check Ollama connectivity and model availability on startup (non-blocking)."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{settings.ollama_base_url}/api/version")
+            if resp.status_code == 200:
+                version = resp.json().get("version", "unknown")
+                logger.info(f"Ollama connected: version {version}")
+            else:
+                logger.warning(f"Ollama responded with status {resp.status_code}")
+                return
+    except Exception as e:
+        logger.warning(
+            f"Ollama is not reachable at {settings.ollama_base_url}: {e}. "
+            f"Document processing will fail until Ollama is available."
+        )
+        return
+
+    # Check models
+    for model_name in [settings.embedding_model, settings.chat_model]:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    f"{settings.ollama_base_url}/api/show",
+                    json={"name": model_name}
+                )
+                if resp.status_code == 200:
+                    logger.info(f"Model '{model_name}' is available")
+                else:
+                    logger.warning(
+                        f"Model '{model_name}' not found. "
+                        f"Pull it: ollama pull {model_name}"
+                    )
+        except Exception as e:
+            logger.warning(f"⚠️ Could not check model '{model_name}': {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
@@ -46,6 +84,9 @@ async def lifespan(app: FastAPI):
     # Ensure upload directory exists
     os.makedirs(settings.upload_dir, exist_ok=True)
     logger.info(f"Upload directory: {settings.upload_dir}")
+    
+    # Check Ollama (non-blocking, just logs warnings)
+    await check_ollama_on_startup()
     
     yield
     
@@ -97,8 +138,20 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
+    # Check Ollama connectivity
+    ollama_status = "unknown"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{settings.ollama_base_url}/api/version")
+            ollama_status = "connected" if resp.status_code == 200 else f"error ({resp.status_code})"
+    except Exception:
+        ollama_status = "unreachable"
+
     return {
         "status": "healthy",
         "database": "connected",
-        "ollama_url": settings.ollama_base_url
+        "ollama_url": settings.ollama_base_url,
+        "ollama_status": ollama_status,
+        "embedding_model": settings.embedding_model,
+        "chat_model": settings.chat_model
     }

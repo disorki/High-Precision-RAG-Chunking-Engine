@@ -134,10 +134,21 @@ export default function ChatInterface({
                         if (line.startsWith("data: ")) {
                             try {
                                 const data = JSON.parse(line.slice(6));
+
+                                // Two-step: show "thinking" while model generates answer
+                                if (data.status === "thinking") {
+                                    currentMessages = currentMessages.map((msg) =>
+                                        msg.id === assistantMessage.id
+                                            ? { ...msg, content: "Analyzing document..." }
+                                            : msg
+                                    );
+                                    onMessagesChange(currentMessages, updatedSessionId);
+                                }
+
                                 if (data.content) {
                                     currentMessages = currentMessages.map((msg) =>
                                         msg.id === assistantMessage.id
-                                            ? { ...msg, content: data.clear ? data.content : msg.content + data.content }
+                                            ? { ...msg, content: msg.content === "Analyzing document..." ? data.content : msg.content + data.content }
                                             : msg
                                     );
                                     onMessagesChange(currentMessages, updatedSessionId);

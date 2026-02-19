@@ -28,14 +28,14 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    # Uncomment below for GPU support (requires NVIDIA GPU + nvidia-docker)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    # GPU support (requires NVIDIA GPU + NVIDIA Container Toolkit)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     healthcheck:
       test: [ "CMD-SHELL", "curl -f http://localhost:11434/api/version || exit 0" ]
       interval: 30s

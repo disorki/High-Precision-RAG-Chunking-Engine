@@ -1,7 +1,9 @@
 import os
 import uuid
 import logging
+import mimetypes
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -9,11 +11,20 @@ from app.models import Document, User, DocumentStatus
 from app.schemas import UploadResponse, DocumentResponse, DocumentStatusEnum
 from app.config import get_settings
 from app.workers import process_document_task
+from app.services.rag_pipeline import SUPPORTED_EXTENSIONS
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["upload"])
+
+# MIME types for supported formats
+MIME_TYPES = {
+    '.pdf': 'application/pdf',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.txt': 'text/plain',
+}
 
 
 def get_or_create_default_user(db: Session) -> User:
@@ -34,7 +45,9 @@ async def upload_document(
     db: Session = Depends(get_db)
 ):
     """
-    Upload a PDF document for processing.
+    Upload a document for processing.
+    
+    Supported formats: PDF, Word (.docx), Excel (.xlsx)
     
     - Validates file type
     - Saves file to disk
@@ -42,10 +55,11 @@ async def upload_document(
     - Triggers background processing task
     """
     # Validate file type
-    if not file.filename.lower().endswith('.pdf'):
+    file_extension = os.path.splitext(file.filename)[1].lower()
+    if file_extension not in SUPPORTED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail="Only PDF files are supported"
+            detail=f"Unsupported file type. Supported formats: {', '.join(SUPPORTED_EXTENSIONS)}"
         )
     
     # Validate file size
@@ -60,7 +74,6 @@ async def upload_document(
     user = get_or_create_default_user(db)
     
     # Generate unique filename
-    file_extension = os.path.splitext(file.filename)[1]
     unique_filename = f"{uuid.uuid4()}{file_extension}"
     file_path = os.path.join(settings.upload_dir, unique_filename)
     
@@ -88,19 +101,15 @@ async def upload_document(
     db.refresh(document)
     
     # Schedule background processing
-    # We need to run the async task in the background
     def run_processing_sync():
         """Sync wrapper to run async processing task."""
         import asyncio
-        # Create a new database session for the background task
         from app.database import SessionLocal
         task_db = SessionLocal()
         try:
-            # Run async task in a new event loop
             asyncio.run(process_document_task(document.id, file_path, task_db))
         except Exception as e:
             logger.error(f"Background processing failed: {e}")
-            # Update document status to failed
             document_to_update = task_db.query(Document).filter(Document.id == document.id).first()
             if document_to_update:
                 document_to_update.status = DocumentStatus.FAILED
@@ -133,6 +142,37 @@ async def get_document(
         raise HTTPException(status_code=404, detail="Document not found")
     
     return document
+
+
+@router.get("/documents/{document_id}/file")
+async def get_document_file(
+    document_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Download/preview the original document file.
+    Returns the file with appropriate Content-Type for browser rendering.
+    """
+    document = db.query(Document).filter(Document.id == document_id).first()
+    
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    if not os.path.exists(document.file_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    
+    # Determine content type
+    file_extension = os.path.splitext(document.original_filename)[1].lower()
+    content_type = MIME_TYPES.get(file_extension, 'application/octet-stream')
+    
+    return FileResponse(
+        path=document.file_path,
+        media_type=content_type,
+        filename=document.original_filename,
+        headers={
+            "Content-Disposition": f"inline; filename=\"{document.original_filename}\""
+        }
+    )
 
 
 @router.get("/documents", response_model=list[DocumentResponse])
