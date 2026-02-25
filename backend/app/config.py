@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     
     # RAG settings
     embedding_model: str = "nomic-embed-text"
-    chat_model: str = "mistral"
+    chat_model: str = "llama3"
     chunk_size: int = 1500  # Larger chunks for tables
     chunk_overlap: int = 300  # More overlap to avoid splitting tables
     top_k_chunks: int = 10  # Retrieve more chunks for better context
@@ -33,9 +33,22 @@ class Settings(BaseSettings):
     context_max_tokens: int = 6000  # Max tokens for context window
     history_max_chars: int = 3000  # Max chars for chat history
     
+    # Advanced Retrieval Features
+    enable_context_headers: bool = True  # LLM generates "context headers" for chunks
+    embedding_concurrency: int = 5       # Max parallel embedding requests
+    embedding_cache_size: int = 1000     # LRU cache size for embeddings
+    enable_reranker: bool = True         # Use cross-encoder for reranking results
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_top_k: int = 5              # Items to keep after reranking
+
     # Retry settings
     embedding_retry_count: int = 3
     embedding_retry_delay: float = 1.0  # Base delay in seconds (exponential backoff)
+    
+    # Yandex Disk Integration (OAuth)
+    yandex_client_id: str = ""  # OAuth app Client ID
+    yandex_client_secret: str = ""  # OAuth app Client Secret
+    sync_default_interval: int = 30  # Default sync interval in minutes
     
     class Config:
         env_file = ".env"

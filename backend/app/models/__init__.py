@@ -4,7 +4,8 @@ from app.models.models import (
     DocumentChunk,
     ChatSession,
     ChatMessage,
-    DocumentStatus
+    DocumentStatus,
+    SyncSource
 )
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "DocumentChunk",
     "ChatSession",
     "ChatMessage",
-    "DocumentStatus"
+    "DocumentStatus",
+    "SyncSource"
 ]

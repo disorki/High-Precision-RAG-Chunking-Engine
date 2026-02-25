@@ -115,9 +115,28 @@ class SaveMessageRequest(BaseModel):
 class ChunkSource(BaseModel):
     """Source chunk information for citations."""
     chunk_id: int
+    chunk_uuid: str
     text: str
     page_number: Optional[int] = None
     score: float
+    context_header: Optional[str] = None
+    source_filename: Optional[str] = None
+
+
+class SearchResult(BaseModel):
+    chunk_uuid: str
+    text: str
+    page_number: Optional[int] = None
+    score: float
+    context_header: Optional[str] = None
+    document_id: int
+    document_filename: str
+
+
+class SearchResponse(BaseModel):
+    results: List[SearchResult]
+    total: int
+    query: str
 
 
 class ChatResponse(BaseModel):
@@ -131,4 +150,9 @@ class UploadResponse(BaseModel):
     document_id: int
     filename: str
     status: DocumentStatusEnum
+    message: str
+
+
+class UploadBatchResponse(BaseModel):
+    results: List[UploadResponse]
     message: str

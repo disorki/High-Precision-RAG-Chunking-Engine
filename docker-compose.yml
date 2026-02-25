@@ -35,7 +35,7 @@ services:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [gpu]
+              capabilities: [ gpu ]
     healthcheck:
       test: [ "CMD-SHELL", "curl -f http://localhost:11434/api/version || exit 0" ]
       interval: 30s
@@ -55,6 +55,8 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ragdb
       - OLLAMA_BASE_URL=http://ollama:11434
       - UPLOAD_DIR=/app/uploads
+      - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
+      - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
     volumes:
       - ./backend:/app
       - uploads_data:/app/uploads

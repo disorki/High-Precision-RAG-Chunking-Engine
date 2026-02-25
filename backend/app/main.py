@@ -7,7 +7,7 @@ import os
 import httpx
 
 from app.database import engine, Base
-from app.routers import upload_router, chat_router
+from app.routers import upload_router, chat_router, search_router, index_router, sync_router
 from app.config import get_settings
 
 # Configure logging
@@ -21,7 +21,7 @@ settings = get_settings()
 
 
 def run_migrations():
-    """Run Alembic migrations programmatically."""
+    """Run Alembic migrations + ensure all model tables exist."""
     try:
         from alembic.config import Config
         from alembic import command
@@ -30,9 +30,15 @@ def run_migrations():
         command.upgrade(alembic_cfg, "head")
         logger.info("Alembic migrations applied successfully")
     except Exception as e:
-        logger.warning(f"Alembic migration failed: {e}. Falling back to create_all.")
+        logger.warning(f"Alembic migration failed: {e}")
+
+    # Always run create_all as a safety net — this creates any tables
+    # defined in models that don't yet exist in the database
+    try:
         Base.metadata.create_all(bind=engine)
-        logger.info("Database tables created via create_all (fallback)")
+        logger.info("Database tables verified via create_all")
+    except Exception as e:
+        logger.error(f"Failed to create tables: {e}")
 
 
 async def check_ollama_on_startup():
@@ -88,9 +94,22 @@ async def lifespan(app: FastAPI):
     # Check Ollama (non-blocking, just logs warnings)
     await check_ollama_on_startup()
     
+    # Start sync scheduler
+    try:
+        from app.workers.sync_scheduler import init_scheduler, register_all_sources, stop_scheduler
+        init_scheduler()
+        register_all_sources()
+    except Exception as e:
+        logger.warning(f"Failed to start sync scheduler: {e}")
+    
     yield
     
     # Shutdown
+    try:
+        from app.workers.sync_scheduler import stop_scheduler
+        stop_scheduler()
+    except Exception:
+        pass
     logger.info("Shutting down RAG API server...")
 
 
@@ -119,6 +138,9 @@ app.add_middleware(
 # Include routers
 app.include_router(upload_router)
 app.include_router(chat_router)
+app.include_router(search_router)
+app.include_router(index_router)
+app.include_router(sync_router)
 
 # Mount static files for uploaded PDFs (optional, for direct access)
 if os.path.exists(settings.upload_dir):

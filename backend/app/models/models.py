@@ -64,10 +64,12 @@ class DocumentChunk(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    chunk_uuid = Column(String(36), nullable=False, index=True)
     text_content = Column(Text, nullable=False)
     embedding = Column(Vector(settings.vector_dimensions), nullable=False)
     page_number = Column(Integer, nullable=True)
     chunk_index = Column(Integer, nullable=False)
+    context_header = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -106,3 +108,23 @@ class ChatMessage(Base):
 
     # Relationships
     session = relationship("ChatSession", back_populates="messages")
+
+
+class SyncSource(Base):
+    """External sync source (e.g., Yandex Disk folder)."""
+    __tablename__ = "sync_sources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    source_type = Column(String(50), default="yandex_disk")
+    folder_path = Column(String(1024), nullable=False)  # Path on Yandex Disk
+    oauth_token = Column(Text, nullable=True)  # Per-source OAuth token
+    yandex_user = Column(String(255), nullable=True)  # Yandex display name
+    sync_interval = Column(Integer, default=30)  # Minutes between syncs
+    last_synced_at = Column(DateTime, nullable=True)
+    status = Column(String(50), default="idle")  # idle / syncing / error / not_connected
+    error_message = Column(Text, nullable=True)
+    file_hashes = Column(Text, nullable=True)  # JSON: {filename: {size, modified}}
+    synced_doc_ids = Column(Text, nullable=True)  # JSON: {filename: doc_id}
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

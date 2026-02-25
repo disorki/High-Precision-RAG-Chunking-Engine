@@ -2,6 +2,7 @@ import os
 import re
 import asyncio
 import logging
+import uuid
 from typing import List, Optional, Callable
 import httpx
 from pypdf import PdfReader
@@ -23,7 +24,8 @@ SUPPORTED_EXTENSIONS = {'.pdf', '.docx', '.xlsx', '.txt'}
 
 def get_file_extension(file_path: str) -> str:
     """Get lowercase file extension."""
-    return os.path.splitext(file_path)[1].lower()
+    ext = os.path.splitext(file_path)[1].lower()
+    return ext
 
 
 class RAGPipeline:
@@ -356,8 +358,8 @@ class RAGPipeline:
         else:
             return 0
 
-    def chunk_text(self, pages: List[dict]) -> List[dict]:
-        """Split extracted pages into chunks while preserving page numbers."""
+    def chunk_text(self, pages: List[dict], filename: str = None) -> List[dict]:
+        """Split extracted pages into chunks while preserving page numbers and adding UUIDs."""
         chunks = []
         chunk_index = 0
 
@@ -373,14 +375,113 @@ class RAGPipeline:
                 if not chunk_text:
                     continue
                 chunks.append({
+                    "chunk_uuid": str(uuid.uuid4()),
                     "text": chunk_text,
                     "page_number": page["page_number"],
-                    "chunk_index": chunk_index
+                    "chunk_index": chunk_index,
+                    "source_filename": filename
                 })
                 chunk_index += 1
 
         logger.info(f"Created {len(chunks)} chunks from {len(pages)} pages")
         return chunks
+
+    async def generate_context_header(self, text: str) -> Optional[str]:
+        """
+        Generate a brief summarizing header via LLM for a text chunk.
+        Raises exceptions on failure, designed to be retried by the caller.
+        """
+        if not settings.enable_context_headers:
+            return None
+
+        prompt = (
+            f"Write a very brief (15-20 words) descriptive context header "
+            f"summarizing the main topic of this text chunk. Output ONLY the header.\n\n"
+            f"Chunk:\n{text}\n\nHeader:"
+        )
+
+        last_error = None
+        for attempt in range(self.retry_count):
+            try:
+                # We use a longer timeout since generation takes more time than embeddings
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        f"{self.ollama_url}/api/generate",
+                        json={
+                            "model": settings.chat_model,
+                            "prompt": prompt,
+                            "stream": False,
+                            "options": {"temperature": 0.1, "num_ctx": 4096}
+                        }
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    header = data.get("response", "").strip()
+                    if not header:
+                        raise ValueError("Ollama returned empty response for context header.")
+                    return header
+
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                last_error = e
+                wait_time = self.retry_delay * (2 ** attempt)
+                logger.warning(
+                    f"Context header attempt {attempt + 1}/{self.retry_count} failed "
+                    f"(transient: {type(e).__name__}). Retrying in {wait_time}s..."
+                )
+                await asyncio.sleep(wait_time)
+            except httpx.HTTPStatusError as e:
+                # Non-retryable
+                if e.response.status_code == 404:
+                    raise ValueError(f"Model '{settings.chat_model}' not found in Ollama.")
+                last_error = e
+                wait_time = self.retry_delay * (2 ** attempt)
+                await asyncio.sleep(wait_time)
+            except Exception as e:
+                last_error = e
+                logger.error(f"Context header generation error: {e}")
+                raise
+
+        raise ConnectionError(f"Failed to generate context header. Last error: {last_error}")
+
+    async def generate_context_headers_batch(
+        self,
+        texts: List[str],
+        progress_callback: Optional[Callable[[int, int], None]] = None
+    ) -> List[Optional[str]]:
+        """
+        Generate context headers for multiple texts.
+        Uses a semaphore to limit concurrency based on settings.
+        """
+        if not settings.enable_context_headers:
+            return [None] * len(texts)
+
+        headers: List[Optional[str]] = [None] * len(texts)
+        state = {"failed": 0, "completed": 0}
+        
+        sem = asyncio.Semaphore(settings.embedding_concurrency)
+
+        async def process_one(idx: int, text: str):
+            async with sem:
+                try:
+                    header = await self.generate_context_header(text)
+                    headers[idx] = header
+                except Exception as e:
+                    logger.error(f"Failed to generate context header for chunk {idx}: {e}")
+                    state["failed"] += 1
+                
+                state["completed"] += 1
+                if progress_callback and state["completed"] % 5 == 0:
+                    progress_callback(state["completed"], len(texts))
+
+        tasks = [process_one(i, txt) for i, txt in enumerate(texts)]
+        await asyncio.gather(*tasks)
+
+        if state["failed"] > 0:
+            logger.warning(f"Context headers generation: {state['failed']}/{len(texts)} failed")
+        else:
+            logger.info(f"Successfully generated {len(texts)} context headers")
+
+        return headers
 
     async def generate_embedding(self, text: str) -> Optional[List[float]]:
         """
@@ -447,35 +548,37 @@ class RAGPipeline:
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> List[Optional[List[float]]]:
         """
-        Generate embeddings for multiple texts with progress tracking.
-        
-        Args:
-            texts: List of text strings to embed
-            progress_callback: Optional callback(current, total) for progress updates
+        Generate embeddings for multiple texts concurrently.
+        Uses a semaphore to limit concurrency based on settings.
         """
-        embeddings = []
-        failed_count = 0
+        embeddings: List[Optional[List[float]]] = [None] * len(texts)
+        state = {"failed": 0, "completed": 0}
+        
+        sem = asyncio.Semaphore(settings.embedding_concurrency)
 
-        for i, text in enumerate(texts):
-            try:
-                embedding = await self.generate_embedding(text)
-                embeddings.append(embedding)
-            except Exception as e:
-                logger.error(
-                    f"Failed to generate embedding for chunk {i} "
-                    f"(text preview: '{text[:80]}...'): {e}"
-                )
-                embeddings.append(None)
-                failed_count += 1
+        async def process_one(idx: int, text: str):
+            async with sem:
+                try:
+                    embedding = await self.generate_embedding(text)
+                    embeddings[idx] = embedding
+                except Exception as e:
+                    logger.error(
+                        f"Failed to generate embedding for chunk {idx} "
+                        f"(text preview: '{text[:80]}...'): {e}"
+                    )
+                    state["failed"] += 1
+                
+                state["completed"] += 1
+                if progress_callback and state["completed"] % 5 == 0:
+                    progress_callback(state["completed"], len(texts))
+                if state["completed"] % 10 == 0:
+                    logger.info(f"Generated {state['completed']}/{len(texts)} embeddings ({state['failed']} failed)")
 
-            if progress_callback and (i + 1) % 5 == 0:
-                progress_callback(i + 1, len(texts))
+        tasks = [process_one(i, txt) for i, txt in enumerate(texts)]
+        await asyncio.gather(*tasks)
 
-            if (i + 1) % 10 == 0:
-                logger.info(f"Generated {i + 1}/{len(texts)} embeddings ({failed_count} failed)")
-
-        if failed_count > 0:
-            logger.warning(f"Embedding generation: {failed_count}/{len(texts)} failed")
+        if state["failed"] > 0:
+            logger.warning(f"Embedding generation: {state['failed']}/{len(texts)} failed")
 
         return embeddings
 

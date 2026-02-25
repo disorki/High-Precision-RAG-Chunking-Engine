@@ -13,7 +13,10 @@ from app.schemas.schemas import (
     ChatResponse,
     ChunkSource,
     UploadResponse,
-    SaveMessageRequest
+    UploadBatchResponse,
+    SaveMessageRequest,
+    SearchResult,
+    SearchResponse
 )
 
 __all__ = [
@@ -31,5 +34,8 @@ __all__ = [
     "ChatResponse",
     "ChunkSource",
     "UploadResponse",
-    "SaveMessageRequest"
+    "UploadBatchResponse",
+    "SaveMessageRequest",
+    "SearchResult",
+    "SearchResponse"
 ]

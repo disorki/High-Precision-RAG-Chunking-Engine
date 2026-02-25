@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { FileText, Upload, MessageSquare, Sparkles, Zap, Shield, Cpu } from "lucide-react";
+import { FileText, Upload, MessageSquare, Sparkles, Zap, Globe, Database } from "lucide-react";
 import UploadZone from "@/components/UploadZone";
 import DocumentList from "@/components/DocumentList";
 import ChatInterface from "@/components/ChatInterface";
-import PdfViewer from "@/components/PdfViewer";
+import FileViewer from "@/components/FileViewer";
+import SyncSourcePanel from "@/components/SyncSourcePanel";
 
 interface Document {
     id: number;
@@ -34,12 +35,13 @@ interface ChatState {
 export default function Home() {
     const [documents, setDocuments] = useState<Document[]>([]);
     const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
-    const [activeTab, setActiveTab] = useState<"upload" | "chat">("upload");
+    const [activeTab, setActiveTab] = useState<"upload" | "chat" | "global">("upload");
     const [showPdf, setShowPdf] = useState(false);
-    const [chatStateMap, setChatStateMap] = useState<Record<number, ChatState>>({});
+    const [chatStateMap, setChatStateMap] = useState<Record<string, ChatState>>({});
     const [isLoading, setIsLoading] = useState(true);
 
-    // Load documents from API on mount
+    const GLOBAL_CHAT_KEY = "__global__";
+
     useEffect(() => {
         const fetchDocuments = async () => {
             try {
@@ -47,7 +49,6 @@ export default function Home() {
                 if (response.ok) {
                     const data = await response.json();
                     setDocuments(data);
-                    // Auto-select the first ready document if any
                     const readyDoc = data.find((d: Document) => d.status === "ready");
                     if (readyDoc) {
                         setSelectedDocument(readyDoc);
@@ -60,15 +61,12 @@ export default function Home() {
                 setIsLoading(false);
             }
         };
-
         fetchDocuments();
     }, []);
 
-    // Poll for processing documents status
     useEffect(() => {
         const processingDocs = documents.filter(d => d.status === "processing");
         if (processingDocs.length === 0) return;
-
         const interval = setInterval(async () => {
             for (const doc of processingDocs) {
                 try {
@@ -78,11 +76,9 @@ export default function Home() {
                         setDocuments(prev => prev.map(d =>
                             d.id === updatedDoc.id ? updatedDoc : d
                         ));
-                        // Update selected document if it's the same
                         if (selectedDocument?.id === updatedDoc.id) {
                             setSelectedDocument(updatedDoc);
                         }
-                        // Switch to chat when ready
                         if (updatedDoc.status === "ready" && selectedDocument?.id === updatedDoc.id) {
                             setActiveTab("chat");
                         }
@@ -92,20 +88,27 @@ export default function Home() {
                 }
             }
         }, 1500);
-
         return () => clearInterval(interval);
     }, [documents, selectedDocument]);
 
-    const currentChatState = selectedDocument ? chatStateMap[selectedDocument.id] : null;
+    const currentDocChatState = selectedDocument ? chatStateMap[String(selectedDocument.id)] : null;
+    const globalChatState = chatStateMap[GLOBAL_CHAT_KEY] || null;
 
-    const handleMessagesChange = useCallback((messages: Message[], sessionId: number | null) => {
+    const handleDocMessagesChange = useCallback((messages: Message[], sessionId: number | null) => {
         if (selectedDocument) {
             setChatStateMap(prev => ({
                 ...prev,
-                [selectedDocument.id]: { messages, sessionId }
+                [String(selectedDocument.id)]: { messages, sessionId }
             }));
         }
     }, [selectedDocument]);
+
+    const handleGlobalMessagesChange = useCallback((messages: Message[], sessionId: number | null) => {
+        setChatStateMap(prev => ({
+            ...prev,
+            [GLOBAL_CHAT_KEY]: { messages, sessionId }
+        }));
+    }, [GLOBAL_CHAT_KEY]);
 
     const handleDocumentUploaded = (doc: Document) => {
         setDocuments(prev => [doc, ...prev]);
@@ -134,74 +137,121 @@ export default function Home() {
             setSelectedDocument(null);
             setActiveTab("upload");
         }
-        // Clean up chat state for deleted document
         setChatStateMap(prev => {
             const next = { ...prev };
-            delete next[docId];
+            delete next[String(docId)];
             return next;
         });
     };
+
+    const handleDeleteFailed = () => {
+        const failedIds = documents.filter(d => d.status === "failed").map(d => d.id);
+        setDocuments(prev => prev.filter(d => d.status !== "failed"));
+        if (selectedDocument && failedIds.includes(selectedDocument.id)) {
+            setSelectedDocument(null);
+            setActiveTab("upload");
+        }
+        setChatStateMap(prev => {
+            const next = { ...prev };
+            failedIds.forEach(id => delete next[String(id)]);
+            return next;
+        });
+    };
+
+    const tabs = [
+        { key: "upload" as const, label: "Обзор", icon: <Sparkles className="w-3.5 h-3.5" /> },
+        { key: "chat" as const, label: "Документ", icon: <MessageSquare className="w-3.5 h-3.5" /> },
+        { key: "global" as const, label: "Все документы", icon: <Globe className="w-3.5 h-3.5" /> },
+    ];
 
     return (
         <main className="min-h-screen relative">
             {/* Aurora Background */}
             <div className="aurora-bg">
-                <div className="gradient-orb gradient-orb-1"></div>
-                <div className="gradient-orb gradient-orb-2"></div>
-                <div className="gradient-orb gradient-orb-3"></div>
+                <div className="gradient-orb gradient-orb-1" />
+                <div className="gradient-orb gradient-orb-2" />
+                <div className="gradient-orb gradient-orb-3" />
             </div>
 
-            <div className="relative z-10 p-4 md:p-8">
-                {/* Header */}
-                <header className="max-w-7xl mx-auto mb-8 animate-in">
-                    <div className="glass-card p-6 md:p-8">
-                        <div className="flex items-center gap-5">
-                            <div className="icon-container">
-                                <Cpu className="w-6 h-6 text-white" />
-                            </div>
-                            <div>
-                                <h1 className="text-2xl md:text-3xl font-bold gradient-text">
-                                    Intelligent RAG System
-                                </h1>
-                                <p className="text-[var(--text-secondary)] text-sm md:text-base mt-1">
-                                    AI-powered document analysis and retrieval
-                                </p>
-                            </div>
+            <div className="relative z-10 px-4 lg:px-6 py-3">
+                {/* ── Header ── */}
+                <header
+                    className="max-w-[1920px] mx-auto mb-3"
+                    style={{ animation: "slideInUp 0.5s cubic-bezier(0.16,1,0.3,1) both" }}
+                >
+                    <div className="flex items-center gap-3">
+                        {/* Logo mark */}
+                        <div style={{
+                            width: 36, height: 36, borderRadius: 11, flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                            boxShadow: '0 4px 18px rgba(99,102,241,0.42), inset 0 1px 0 rgba(255,255,255,0.18)'
+                        }}>
+                            <Database className="w-4.5 h-4.5 text-white" style={{ width: 18, height: 18 }} />
+                        </div>
+                        <div>
+                            <h1 className="text-base font-bold leading-tight" style={{
+                                fontFamily: "'Plus Jakarta Sans', Inter, sans-serif",
+                                background: 'linear-gradient(135deg, #e0e7ff 0%, #a5b4fc 60%, #818cf8 100%)',
+                                WebkitBackgroundClip: 'text',
+                                WebkitTextFillColor: 'transparent',
+                                backgroundClip: 'text'
+                            }}>
+                                RAG System
+                            </h1>
+                            <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+                                Анализ документов с AI
+                            </p>
+                        </div>
+
+                        {/* Status badge */}
+                        <div style={{
+                            marginLeft: 'auto',
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            padding: '4px 10px', borderRadius: 100,
+                            background: 'rgba(16,185,129,0.08)',
+                            border: '1px solid rgba(16,185,129,0.20)',
+                        }}>
+                            <span className="status-dot status-ready" style={{ width: 6, height: 6 }} />
+                            <span className="text-[10px] font-medium" style={{ color: '#34d399' }}>
+                                {documents.filter(d => d.status === "ready").length} документов
+                            </span>
                         </div>
                     </div>
                 </header>
 
-                {/* Main Content */}
-                <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Left Panel - Documents */}
-                    <div className="lg:col-span-1 space-y-6">
-                        {/* Upload Zone */}
-                        <div className="glass-card p-6 animate-in" style={{ animationDelay: '100ms' }}>
-                            <div className="flex items-center gap-3 mb-5">
-                                <div className="icon-container-sm bg-gradient-to-br from-violet-500 to-purple-600" style={{ width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px' }}>
-                                    <Upload className="w-5 h-5 text-white" />
-                                </div>
-                                <div>
-                                    <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                                        Upload Document
-                                    </h2>
-                                    <p className="text-xs text-[var(--text-tertiary)]">PDF, Word, Excel, TXT · до 50MB</p>
-                                </div>
-                            </div>
+                {/* ── Main 2-column grid ── */}
+                <div className="max-w-[1920px] mx-auto grid grid-cols-1 lg:grid-cols-[340px_1fr] xl:grid-cols-[360px_1fr] gap-3">
+
+                    {/* ═══ Left Panel ═══ */}
+                    <div className="lg:col-span-1 space-y-3 lg:max-h-[calc(100vh-4.5rem)] lg:overflow-y-auto lg:pr-1">
+
+                        {/* Upload */}
+                        <div
+                            className="glass-card p-4"
+                            style={{ animation: "slideInUp 0.55s cubic-bezier(0.16,1,0.3,1) 60ms both" }}
+                        >
                             <UploadZone
                                 onDocumentUploaded={handleDocumentUploaded}
                                 onDocumentReady={handleDocumentReady}
                             />
                         </div>
 
-                        {/* Document List */}
-                        <div className="glass-card p-6 animate-in" style={{ animationDelay: '200ms' }}>
-                            <div className="flex items-center justify-between mb-4">
-                                <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                                    Your Documents
+                        {/* Documents */}
+                        <div
+                            className="glass-card p-4"
+                            style={{ animation: "slideInUp 0.55s cubic-bezier(0.16,1,0.3,1) 120ms both" }}
+                        >
+                            <div className="flex items-center justify-between mb-3">
+                                <h2 className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                    Документы
                                 </h2>
                                 {documents.length > 0 && (
-                                    <span className="text-xs text-[var(--text-tertiary)] bg-[var(--bg-elevated)] px-2.5 py-1 rounded-full">
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{
+                                        color: 'var(--accent-secondary)',
+                                        background: 'rgba(99,102,241,0.10)',
+                                        border: '1px solid rgba(99,102,241,0.18)'
+                                    }}>
                                         {documents.length}
                                     </span>
                                 )}
@@ -212,88 +262,112 @@ export default function Home() {
                                 onSelectDocument={handleSelectDocument}
                                 onViewFile={() => setShowPdf(true)}
                                 onDeleteDocument={handleDeleteDocument}
+                                onDeleteFailed={handleDeleteFailed}
                             />
+                        </div>
+
+                        {/* Yandex Disk */}
+                        <div style={{ animation: "slideInUp 0.55s cubic-bezier(0.16,1,0.3,1) 180ms both" }}>
+                            <SyncSourcePanel onDocumentUploaded={handleDocumentUploaded} existingDocuments={documents} />
                         </div>
                     </div>
 
-                    {/* Right Panel - Chat */}
-                    <div className="lg:col-span-2 animate-in" style={{ animationDelay: '300ms' }}>
-                        <div className="glass-card overflow-hidden h-[calc(100vh-12rem)]">
+                    {/* ═══ Right Panel — Chat ═══ */}
+                    <div style={{ animation: "slideInUp 0.6s cubic-bezier(0.16,1,0.3,1) 200ms both" }}>
+                        <div className="glass-card overflow-hidden h-[calc(100vh-4.5rem)] flex flex-col">
+
                             {/* Tabs */}
-                            <div className="p-4 border-b border-[var(--border-subtle)]">
+                            <div className="px-4 pt-2">
                                 <div className="tab-nav">
-                                    <button
-                                        onClick={() => setActiveTab("upload")}
-                                        className={`tab-item ${activeTab === "upload" ? "active" : ""}`}
-                                    >
-                                        <Sparkles className="w-4 h-4" />
-                                        Getting Started
-                                    </button>
-                                    <button
-                                        onClick={() => setActiveTab("chat")}
-                                        className={`tab-item ${activeTab === "chat" ? "active" : ""}`}
-                                    >
-                                        <MessageSquare className="w-4 h-4" />
-                                        Chat
-                                    </button>
+                                    {tabs.map(tab => (
+                                        <button
+                                            key={tab.key}
+                                            onClick={() => setActiveTab(tab.key)}
+                                            className={`tab-item ${activeTab === tab.key ? "active" : ""}`}
+                                        >
+                                            {tab.icon}
+                                            {tab.label}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
 
-                            {/* Tab Content */}
-                            <div className="h-[calc(100%-81px)]">
+                            {/* Content */}
+                            <div className="flex-1 min-h-0">
                                 {activeTab === "upload" ? (
-                                    <div className="flex flex-col items-center justify-center h-full p-8">
-                                        <div className="empty-state">
-                                            <div className="empty-state-icon">
-                                                <FileText className="w-10 h-10 text-violet-400" />
+                                    <div className="flex flex-col items-center justify-center h-full p-6">
+                                        <div className="text-center max-w-sm">
+                                            {/* Hero icon */}
+                                            <div className="empty-state-icon mx-auto mb-5" style={{
+                                                width: 72, height: 72, borderRadius: 22,
+                                                background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(79,70,229,0.08))',
+                                                border: '1px solid rgba(99,102,241,0.22)',
+                                                boxShadow: '0 0 40px rgba(99,102,241,0.12)'
+                                            }}>
+                                                <Sparkles className="w-8 h-8" style={{ color: 'var(--accent-secondary)' }} />
                                             </div>
-                                            <h3 className="text-2xl font-bold text-[var(--text-primary)] mb-3">
-                                                Welcome to RAG Chat
+
+                                            <h3 className="text-lg font-bold mb-2" style={{
+                                                fontFamily: "'Plus Jakarta Sans', Inter, sans-serif",
+                                                background: 'linear-gradient(135deg, #e0e7ff 0%, #a5b4fc 100%)',
+                                                WebkitBackgroundClip: 'text',
+                                                WebkitTextFillColor: 'transparent',
+                                                backgroundClip: 'text'
+                                            }}>
+                                                Добро пожаловать
                                             </h3>
-                                            <p className="text-[var(--text-secondary)] max-w-md mb-10">
-                                                Upload a document and start asking questions. Our AI will analyze and provide accurate answers with sources.
+                                            <p className="text-sm leading-relaxed mb-7" style={{ color: 'var(--text-tertiary)' }}>
+                                                Загрузите документы слева, затем задавайте вопросы через вкладки «Документ» или «Все документы»
                                             </p>
 
-                                            <div className="w-full max-w-md space-y-4">
-                                                <div className="feature-card">
+                                            <div className="space-y-2.5">
+                                                <div
+                                                    className="feature-card"
+                                                    style={{ animation: "slideInUp 0.5s cubic-bezier(0.16,1,0.3,1) 100ms both" }}
+                                                >
                                                     <div className="feature-icon">
-                                                        <Upload className="w-5 h-5 text-violet-400" />
+                                                        <Zap className="w-4 h-4" style={{ color: 'var(--accent-secondary)' }} />
                                                     </div>
-                                                    <div>
-                                                        <p className="font-medium text-[var(--text-primary)]">Загрузить документ</p>
-                                                        <p className="text-sm text-[var(--text-tertiary)]">Перетащите или выберите файл</p>
+                                                    <div className="text-left">
+                                                        <p className="text-[12px] font-semibold" style={{ color: 'var(--text-primary)' }}>Умный анализ</p>
+                                                        <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>Автоматический чанкинг и эмбеддинги</p>
                                                     </div>
                                                 </div>
-
-                                                <div className="feature-card">
-                                                    <div className="feature-icon">
-                                                        <Zap className="w-5 h-5 text-violet-400" />
+                                                <div
+                                                    className="feature-card"
+                                                    style={{ animation: "slideInUp 0.5s cubic-bezier(0.16,1,0.3,1) 180ms both" }}
+                                                >
+                                                    <div className="feature-icon" style={{
+                                                        background: 'linear-gradient(135deg, rgba(6,182,212,0.15), rgba(6,182,212,0.05))',
+                                                        border: '1px solid rgba(6,182,212,0.20)'
+                                                    }}>
+                                                        <Globe className="w-4 h-4" style={{ color: 'var(--cyan)' }} />
                                                     </div>
-                                                    <div>
-                                                        <p className="font-medium text-[var(--text-primary)]">AI Processing</p>
-                                                        <p className="text-sm text-[var(--text-tertiary)]">Smart chunking & embedding</p>
-                                                    </div>
-                                                </div>
-
-                                                <div className="feature-card">
-                                                    <div className="feature-icon">
-                                                        <Shield className="w-5 h-5 text-violet-400" />
-                                                    </div>
-                                                    <div>
-                                                        <p className="font-medium text-[var(--text-primary)]">Accurate Answers</p>
-                                                        <p className="text-sm text-[var(--text-tertiary)]">With source citations</p>
+                                                    <div className="text-left">
+                                                        <p className="text-[12px] font-semibold" style={{ color: 'var(--text-primary)' }}>Глобальный поиск</p>
+                                                        <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>Вопросы по всей базе знаний</p>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                ) : (
+                                ) : activeTab === "chat" ? (
                                     <ChatInterface
                                         document={selectedDocument}
+                                        isGlobalMode={false}
                                         onNoDocument={() => setActiveTab("upload")}
-                                        messages={currentChatState?.messages || []}
-                                        sessionId={currentChatState?.sessionId || null}
-                                        onMessagesChange={handleMessagesChange}
+                                        messages={currentDocChatState?.messages || []}
+                                        sessionId={currentDocChatState?.sessionId || null}
+                                        onMessagesChange={handleDocMessagesChange}
+                                    />
+                                ) : (
+                                    <ChatInterface
+                                        document={null}
+                                        isGlobalMode={true}
+                                        onNoDocument={() => setActiveTab("upload")}
+                                        messages={globalChatState?.messages || []}
+                                        sessionId={globalChatState?.sessionId || null}
+                                        onMessagesChange={handleGlobalMessagesChange}
                                     />
                                 )}
                             </div>

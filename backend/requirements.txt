@@ -18,6 +18,13 @@ langchain-core==0.1.22
 pypdf==4.0.1
 python-docx==1.1.0
 openpyxl==3.1.2
+rarfile==4.1
+
+# Advanced RAG
+sentence-transformers==3.0.1
+torch==2.3.1
+transformers>=4.40.0
+optimum[onnxruntime]>=1.17.0
 
 # HTTP Client
 httpx==0.26.0
@@ -29,3 +36,6 @@ pydantic-settings==2.1.0
 email-validator==2.1.0
 python-dotenv==1.0.1
 numpy==1.26.4
+
+# Scheduling
+apscheduler>=3.10.0

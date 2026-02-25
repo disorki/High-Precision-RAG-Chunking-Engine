@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, AlertCircle, MessageCircle, Sparkles } from "lucide-react";
+import { Send, Loader2, AlertCircle, MessageCircle, Sparkles, Globe, Upload as UploadIcon } from "lucide-react";
 
 interface Document {
     id: number;
@@ -25,6 +25,7 @@ interface Source {
 
 interface ChatInterfaceProps {
     document: Document | null;
+    isGlobalMode: boolean;
     onNoDocument: () => void;
     messages: Message[];
     sessionId: number | null;
@@ -33,6 +34,7 @@ interface ChatInterfaceProps {
 
 export default function ChatInterface({
     document,
+    isGlobalMode,
     onNoDocument,
     messages,
     sessionId,
@@ -45,7 +47,6 @@ export default function ChatInterface({
     const [error, setError] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // Check if we're waiting for a response (last message is from user with empty or no assistant reply)
     const lastMessage = messages[messages.length - 1];
     const isWaitingForResponse = lastMessage?.role === "user" ||
         (lastMessage?.role === "assistant" && lastMessage.content === "");
@@ -64,7 +65,8 @@ export default function ChatInterface({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!input.trim() || isLoading || !document) return;
+        if (!input.trim() || isLoading) return;
+        if (!isGlobalMode && !document) return;
 
         const userMessage: Message = {
             id: Date.now().toString(),
@@ -79,14 +81,19 @@ export default function ChatInterface({
         setError(null);
 
         try {
+            const body: Record<string, unknown> = {
+                message: userMessage.content,
+                session_id: currentSessionId,
+            };
+
+            if (!isGlobalMode && document) {
+                body.document_id = document.id;
+            }
+
             const response = await fetch("/api/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    message: userMessage.content,
-                    document_id: document.id,
-                    session_id: currentSessionId,
-                }),
+                body: JSON.stringify(body),
             });
 
             if (!response.ok) {
@@ -135,11 +142,10 @@ export default function ChatInterface({
                             try {
                                 const data = JSON.parse(line.slice(6));
 
-                                // Two-step: show "thinking" while model generates answer
                                 if (data.status === "thinking") {
                                     currentMessages = currentMessages.map((msg) =>
                                         msg.id === assistantMessage.id
-                                            ? { ...msg, content: "Analyzing document..." }
+                                            ? { ...msg, content: "Analyzing documents..." }
                                             : msg
                                     );
                                     onMessagesChange(currentMessages, updatedSessionId);
@@ -148,7 +154,7 @@ export default function ChatInterface({
                                 if (data.content) {
                                     currentMessages = currentMessages.map((msg) =>
                                         msg.id === assistantMessage.id
-                                            ? { ...msg, content: msg.content === "Analyzing document..." ? data.content : msg.content + data.content }
+                                            ? { ...msg, content: msg.content === "Analyzing documents..." ? data.content : msg.content + data.content }
                                             : msg
                                     );
                                     onMessagesChange(currentMessages, updatedSessionId);
@@ -157,7 +163,6 @@ export default function ChatInterface({
                                     throw new Error(data.error);
                                 }
 
-                                // Save response when done
                                 if (data.done && updatedSessionId) {
                                     const finalMessage = currentMessages.find(m => m.id === assistantMessage.id);
                                     if (finalMessage?.content) {
@@ -190,72 +195,36 @@ export default function ChatInterface({
         }
     };
 
-    if (!document) {
-        return (
-            <div className="empty-state h-full">
-                <div className="empty-state-icon">
-                    <AlertCircle className="w-10 h-10 text-[var(--text-tertiary)]" />
-                </div>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-                    No Document Selected
-                </h3>
-                <p className="text-[var(--text-tertiary)] mb-6 max-w-sm">
-                    Please select a document to start chatting
-                </p>
-                <button onClick={onNoDocument} className="btn-premium">
-                    <Upload className="w-4 h-4" />
-                    Upload a Document
-                </button>
-            </div>
-        );
-    }
-
-    if (document.status !== "ready") {
-        return (
-            <div className="empty-state h-full">
-                <div className="relative mb-6">
-                    <div className="absolute inset-0 bg-violet-500 rounded-full blur-xl opacity-30 animate-pulse"></div>
-                    <Loader2 className="relative w-12 h-12 text-violet-400 animate-spin" />
-                </div>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-                    Processing Document
-                </h3>
-                <p className="text-[var(--text-tertiary)] mb-6">
-                    Analyzing and indexing your document...
-                </p>
-                <div className="w-48">
-                    <div className="progress-bar">
-                        <div className="progress-fill" style={{ width: '66%' }}></div>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    return (
+    const renderMessages = (placeholder: string) => (
         <div className="flex flex-col h-full">
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
                 {messages.length === 0 ? (
                     <div className="empty-state h-full">
                         <div className="empty-state-icon">
-                            <MessageCircle className="w-10 h-10 text-violet-400" />
+                            {isGlobalMode
+                                ? <Globe className="w-7 h-7" style={{ color: 'var(--cyan)' }} />
+                                : <MessageCircle className="w-7 h-7" style={{ color: 'var(--accent-secondary)' }} />
+                            }
                         </div>
-                        <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-                            Ready to Chat
+                        <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                            {isGlobalMode ? "Глобальная база знаний" : "Чат готов"}
                         </h3>
-                        <p className="text-[var(--text-tertiary)] text-sm max-w-sm leading-relaxed">
-                            Ask questions about &quot;{document.original_filename}&quot; and I&apos;ll answer based on its content.
+                        <p className="text-sm max-w-xs leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+                            {isGlobalMode
+                                ? "Задавайте вопросы по всем загруженным документам."
+                                : `Задавайте вопросы о "${document?.original_filename}" и я отвечу на основе содержимого.`
+                            }
                         </p>
                     </div>
                 ) : (
                     <>
-                        {messages.map((message) => (
+                        {messages.map((message, idx) => (
                             <div
                                 key={message.id}
                                 className={`message-container ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                                style={{ animationDelay: `${idx * 20}ms` }}
                             >
-                                <div className={`max-w-[75%] ${message.role === "user" ? "message-user" : "message-assistant"}`}>
+                                <div className={`max-w-[78%] ${message.role === "user" ? "message-user" : "message-assistant"}`}>
                                     <p className="text-sm leading-relaxed whitespace-pre-wrap">
                                         {message.content}
                                     </p>
@@ -267,9 +236,7 @@ export default function ChatInterface({
                             <div className="message-container justify-start">
                                 <div className="message-assistant">
                                     <div className="typing-indicator">
-                                        <span></span>
-                                        <span></span>
-                                        <span></span>
+                                        <span /><span /><span />
                                     </div>
                                 </div>
                             </div>
@@ -291,15 +258,15 @@ export default function ChatInterface({
 
             {/* Sources */}
             {sources.length > 0 && (
-                <div className="px-6 py-3 border-t border-[var(--border-subtle)]">
-                    <p className="text-xs text-[var(--text-tertiary)] mb-2 flex items-center gap-1">
-                        <Sparkles className="w-3 h-3" />
-                        Sources
+                <div className="px-5 py-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                    <p className="text-xs mb-2 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
+                        <Sparkles className="w-3 h-3" style={{ color: 'var(--accent-secondary)' }} />
+                        Источники
                     </p>
                     <div className="flex gap-2 overflow-x-auto pb-1">
                         {sources.map((source, i) => (
-                            <span key={source.chunk_id} className="source-pill">
-                                {source.page_number ? `Page ${source.page_number}` : `Chunk ${i + 1}`}
+                            <span key={source.chunk_id} className="source-pill flex-shrink-0">
+                                {source.page_number ? `Стр. ${source.page_number}` : `Чанк ${i + 1}`}
                             </span>
                         ))}
                     </div>
@@ -307,39 +274,89 @@ export default function ChatInterface({
             )}
 
             {/* Input */}
-            <div className="p-4 border-t border-[var(--border-subtle)]">
+            <div className="p-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
                 <form onSubmit={handleSubmit} className="flex gap-3">
                     <input
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        placeholder="Ask a question about your document..."
+                        placeholder={placeholder}
                         className="input-premium flex-1"
                         disabled={isLoading}
+                        style={{ borderRadius: 14 }}
                     />
                     <button
                         type="submit"
                         disabled={!input.trim() || isLoading}
                         className="btn-premium px-5"
+                        style={{ borderRadius: 14, minWidth: 52 }}
                     >
-                        {isLoading ? (
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : (
-                            <Send className="w-5 h-5" />
-                        )}
+                        {isLoading
+                            ? <Loader2 className="w-5 h-5" style={{ animation: 'spin 0.9s linear infinite' }} />
+                            : <Send className="w-5 h-5" />
+                        }
                     </button>
                 </form>
             </div>
         </div>
     );
-}
 
-function Upload({ className }: { className?: string }) {
-    return (
-        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="17 8 12 3 7 8" />
-            <line x1="12" y1="3" x2="12" y2="15" />
-        </svg>
-    );
+    // Global mode
+    if (isGlobalMode) {
+        return renderMessages("Задайте вопрос по всем документам...");
+    }
+
+    // No document selected
+    if (!document) {
+        return (
+            <div className="empty-state h-full">
+                <div className="empty-state-icon">
+                    <AlertCircle className="w-7 h-7" style={{ color: 'var(--text-tertiary)' }} />
+                </div>
+                <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                    Документ не выбран
+                </h3>
+                <p className="text-sm mb-6" style={{ color: 'var(--text-tertiary)' }}>
+                    Выберите документ чтобы начать
+                </p>
+                <button onClick={onNoDocument} className="btn-premium">
+                    <UploadIcon className="w-4 h-4" />
+                    Загрузить документ
+                </button>
+            </div>
+        );
+    }
+
+    // Processing
+    if (document.status !== "ready") {
+        return (
+            <div className="empty-state h-full">
+                <div className="relative mb-6">
+                    <div style={{
+                        position: 'absolute', inset: '-8px', borderRadius: '50%',
+                        background: 'rgba(99,102,241,0.20)',
+                        filter: 'blur(12px)',
+                        animation: 'pulseGlow 1.5s ease-in-out infinite'
+                    }} />
+                    <Loader2 className="relative w-10 h-10" style={{
+                        color: 'var(--accent-secondary)',
+                        animation: 'spin 0.9s linear infinite'
+                    }} />
+                </div>
+                <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                    Обработка документа
+                </h3>
+                <p className="text-sm mb-6" style={{ color: 'var(--text-tertiary)' }}>
+                    Анализ и индексация документа...
+                </p>
+                <div className="w-52">
+                    <div className="progress-bar">
+                        <div className="progress-fill" style={{ width: '66%' }} />
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return renderMessages("Задайте вопрос по документу...");
 }

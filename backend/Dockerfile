@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
     curl \
+    unrar-free \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for caching

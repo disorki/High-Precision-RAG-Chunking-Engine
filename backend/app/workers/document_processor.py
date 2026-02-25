@@ -3,6 +3,9 @@ from sqlalchemy.orm import Session
 
 from app.models import Document, DocumentChunk, DocumentStatus
 from app.services import rag_pipeline
+from app.config import get_settings
+
+settings = get_settings()
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +61,9 @@ async def process_document_task(document_id: int, file_path: str, db: Session):
         logger.info(f"Extracted {len(pages)} pages/sections from document {document_id}")
         update_processing_stage(db, document, "extracting_text", 25)
         
-        # Stage 2: Chunking
+        # Stage 2: Chunking (with metadata)
         update_processing_stage(db, document, "chunking", 30)
-        chunks = rag_pipeline.chunk_text(pages)
+        chunks = rag_pipeline.chunk_text(pages, filename=document.original_filename)
         if not chunks:
             raise ValueError("No chunks created from text. The extracted text may be too short.")
         
@@ -69,29 +72,42 @@ async def process_document_task(document_id: int, file_path: str, db: Session):
         logger.info(f"Created {len(chunks)} chunks for document {document_id}")
         update_processing_stage(db, document, "chunking", 40)
         
-        # Stage 3: Generating embeddings (with retry built into the pipeline)
-        update_processing_stage(db, document, "generating_embeddings", 45)
-        
         texts = [chunk["text"] for chunk in chunks]
         
-        def on_progress(current: int, total: int):
+        # Stage 2.5: Generating context headers (Optional via config)
+        if settings.enable_context_headers:
+            update_processing_stage(db, document, "generating_headers", 45)
+            def on_header_progress(current: int, total: int):
+                progress = 45 + int(current / total * 15)  # 45-60%
+                update_processing_stage(db, document, "generating_headers", progress)
+                
+            headers = await rag_pipeline.generate_context_headers_batch(
+                texts, progress_callback=on_header_progress
+            )
+        else:
+            headers = [None] * len(chunks)
+        
+        # Stage 3: Generating embeddings (with retry and concurrency)
+        update_processing_stage(db, document, "generating_embeddings", 60)
+        
+        def on_embed_progress(current: int, total: int):
             """Update progress during embedding generation."""
-            progress = 45 + int(current / total * 45)  # 45-90%
+            progress = 60 + int(current / total * 30)  # 60-90%
             update_processing_stage(db, document, "generating_embeddings", progress)
         
         embeddings = await rag_pipeline.generate_embeddings_batch(
-            texts, progress_callback=on_progress
+            texts, progress_callback=on_embed_progress
         )
         
         # Stage 4: Storing vectors
         update_processing_stage(db, document, "storing_vectors", 92)
         
-        # Combine chunks with embeddings
+        # Combine chunks with metadata and embeddings
         processed_chunks = []
         failed_indices = []
-        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        for i, (chunk, embedding, header) in enumerate(zip(chunks, embeddings, headers)):
             if embedding is not None:
-                processed_chunks.append({**chunk, "embedding": embedding})
+                processed_chunks.append({**chunk, "embedding": embedding, "context_header": header})
             else:
                 failed_indices.append(i)
         
@@ -114,10 +130,12 @@ async def process_document_task(document_id: int, file_path: str, db: Session):
         for chunk_data in processed_chunks:
             chunk = DocumentChunk(
                 document_id=document_id,
+                chunk_uuid=chunk_data["chunk_uuid"],
                 text_content=chunk_data["text"],
                 embedding=chunk_data["embedding"],
                 page_number=chunk_data["page_number"],
-                chunk_index=chunk_data["chunk_index"]
+                chunk_index=chunk_data["chunk_index"],
+                context_header=chunk_data.get("context_header")
             )
             db.add(chunk)
         

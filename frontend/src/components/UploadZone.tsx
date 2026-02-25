@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState, useEffect } from "react";
-import { Upload, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Upload, CheckCircle, XCircle, Loader2, Archive } from "lucide-react";
 
 interface Document {
     id: number;
@@ -21,7 +21,9 @@ interface UploadZoneProps {
 }
 
 const SUPPORTED_EXTENSIONS = [".pdf", ".docx", ".xlsx", ".txt"];
-const ACCEPT_STRING = ".pdf,.docx,.xlsx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain";
+const ARCHIVE_EXTENSIONS = [".zip", ".rar"];
+const ALL_EXTENSIONS = [...SUPPORTED_EXTENSIONS, ...ARCHIVE_EXTENSIONS];
+const ACCEPT_STRING = ".pdf,.docx,.xlsx,.txt,.zip,.rar,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,application/zip,application/x-rar-compressed";
 
 const stageLabels: Record<string, string> = {
     uploading: "Загрузка файла...",
@@ -36,7 +38,12 @@ const stageLabels: Record<string, string> = {
 
 function isSupported(filename: string): boolean {
     const ext = filename.toLowerCase().split(".").pop();
-    return ext ? SUPPORTED_EXTENSIONS.includes(`.${ext}`) : false;
+    return ext ? ALL_EXTENSIONS.includes(`.${ext}`) : false;
+}
+
+function isArchive(filename: string): boolean {
+    const ext = filename.toLowerCase().split(".").pop();
+    return ext ? ARCHIVE_EXTENSIONS.includes(`.${ext}`) : false;
 }
 
 export default function UploadZone({
@@ -62,7 +69,6 @@ export default function UploadZone({
                     if (response.ok) {
                         const doc = await response.json();
 
-                        // Update processing info for real-time progress
                         if (doc.status === "processing") {
                             setProcessingInfo(prev => ({
                                 ...prev,
@@ -135,6 +141,7 @@ export default function UploadZone({
         if (files && files.length > 0) {
             handleFiles(files);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -145,18 +152,19 @@ export default function UploadZone({
     };
 
     const handleFiles = async (files: FileList) => {
-        const file = files[0];
-
-        if (!isSupported(file.name)) {
-            setUploadStatus({
-                type: "error",
-                message: "Поддерживаемые форматы: PDF, Word (.docx), Excel (.xlsx), Text (.txt)"
-            });
-            return;
+        // Filter supported files
+        const validFiles: File[] = [];
+        for (let i = 0; i < files.length; i++) {
+            if (isSupported(files[i].name)) {
+                validFiles.push(files[i]);
+            }
         }
 
-        if (file.size > 50 * 1024 * 1024) {
-            setUploadStatus({ type: "error", message: "Размер файла не должен превышать 50MB" });
+        if (validFiles.length === 0) {
+            setUploadStatus({
+                type: "error",
+                message: "Поддерживаемые форматы: PDF, Word, Excel, TXT, ZIP, RAR"
+            });
             return;
         }
 
@@ -164,35 +172,83 @@ export default function UploadZone({
         setUploadStatus({ type: null, message: "" });
 
         try {
-            const formData = new FormData();
-            formData.append("file", file);
+            if (validFiles.length === 1 && !isArchive(validFiles[0].name)) {
+                // Single non-archive file: use the regular single upload endpoint
+                const formData = new FormData();
+                formData.append("file", validFiles[0]);
 
-            const response = await fetch("/api/upload", {
-                method: "POST",
-                body: formData,
-            });
+                const response = await fetch("/api/upload", {
+                    method: "POST",
+                    body: formData,
+                });
 
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || "Upload failed");
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || "Upload failed");
+                }
+
+                const data = await response.json();
+
+                onDocumentUploaded({
+                    id: data.document_id,
+                    filename: validFiles[0].name,
+                    original_filename: validFiles[0].name,
+                    status: "processing",
+                    created_at: new Date().toISOString(),
+                });
+
+                setProcessingDocs((prev) => [...prev, data.document_id]);
+                setProcessingInfo(prev => ({
+                    ...prev,
+                    [data.document_id]: { stage: "uploading", progress: 0 }
+                }));
+                setUploadStatus({ type: "success", message: "Документ загружен! Обработка..." });
+            } else {
+                // Multiple files or archives: use batch endpoint
+                const formData = new FormData();
+                for (const file of validFiles) {
+                    formData.append("files", file);
+                }
+
+                const response = await fetch("/api/upload/batch", {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || "Batch upload failed");
+                }
+
+                const data = await response.json();
+                let successCount = 0;
+
+                for (const result of data.results) {
+                    if (result.status === "processing") {
+                        successCount++;
+                        onDocumentUploaded({
+                            id: result.document_id,
+                            filename: result.filename,
+                            original_filename: result.filename,
+                            status: "processing",
+                            created_at: new Date().toISOString(),
+                        });
+
+                        setProcessingDocs((prev) => [...prev, result.document_id]);
+                        setProcessingInfo(prev => ({
+                            ...prev,
+                            [result.document_id]: { stage: "uploading", progress: 0 }
+                        }));
+                    }
+                }
+
+                setUploadStatus({
+                    type: successCount > 0 ? "success" : "error",
+                    message: successCount > 0
+                        ? `Загружено ${successCount} файл(ов). Обработка...`
+                        : "Не удалось загрузить файлы"
+                });
             }
-
-            const data = await response.json();
-
-            onDocumentUploaded({
-                id: data.document_id,
-                filename: file.name,
-                original_filename: file.name,
-                status: "processing",
-                created_at: new Date().toISOString(),
-            });
-
-            setProcessingDocs((prev) => [...prev, data.document_id]);
-            setProcessingInfo(prev => ({
-                ...prev,
-                [data.document_id]: { stage: "uploading", progress: 0 }
-            }));
-            setUploadStatus({ type: "success", message: "Документ загружен! Обработка..." });
         } catch (error) {
             setUploadStatus({
                 type: "error",
@@ -203,7 +259,6 @@ export default function UploadZone({
         }
     };
 
-    // Get the combined processing info for display
     const activeProcessing = processingDocs.map(docId => processingInfo[docId]).filter(Boolean);
     const currentStage = activeProcessing.length > 0 ? activeProcessing[0] : null;
 
@@ -222,27 +277,48 @@ export default function UploadZone({
                     onChange={handleFileInput}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
                     disabled={isUploading}
+                    multiple
                 />
 
                 <div className="relative z-10 flex flex-col items-center gap-4">
                     {isUploading ? (
                         <div className="relative">
-                            <div className="absolute inset-0 bg-violet-500 rounded-full blur-xl opacity-30 animate-pulse"></div>
-                            <Loader2 className="relative w-10 h-10 text-violet-400 animate-spin" />
+                            <div style={{
+                                position: 'absolute', inset: '-8px', borderRadius: '50%',
+                                background: 'rgba(99,102,241,0.22)',
+                                filter: 'blur(14px)',
+                                animation: 'pulseGlow 1.4s ease-in-out infinite'
+                            }} />
+                            <Loader2 className="relative w-10 h-10" style={{
+                                color: 'var(--accent-secondary)',
+                                animation: 'spin 0.9s linear infinite'
+                            }} />
                         </div>
                     ) : (
-                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/15 to-purple-500/10 border border-violet-500/20 flex items-center justify-center">
-                            <Upload className="w-6 h-6 text-violet-400" />
+                        <div className="upload-icon-idle" style={{
+                            width: 56, height: 56, borderRadius: 18,
+                            background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(79,70,229,0.07))',
+                            border: '1px solid rgba(99,102,241,0.22)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            boxShadow: '0 0 28px rgba(99,102,241,0.12)'
+                        }}>
+                            <Upload className="w-6 h-6" style={{ color: 'var(--accent-secondary)' }} />
                         </div>
                     )}
 
-                    <div>
+                    <div className="text-center">
                         <p className="text-[var(--text-primary)] font-medium">
-                            {isUploading ? "Загрузка..." : "Перетащите файл сюда"}
+                            {isUploading ? "Загрузка..." : "Перетащите файлы сюда"}
                         </p>
                         <p className="text-[var(--text-tertiary)] text-sm mt-1">
-                            PDF, Word, Excel, TXT · до 50MB
+                            PDF, Word, Excel, TXT · ZIP, RAR · до 50MB
                         </p>
+                        <div className="flex items-center justify-center gap-2 mt-2">
+                            <Archive className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+                            <p className="text-[var(--text-tertiary)] text-xs">
+                                Можно загрузить несколько файлов или архив
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -265,9 +341,11 @@ export default function UploadZone({
                     <Loader2 className="w-4 h-4 text-violet-400 animate-spin flex-shrink-0" />
                     <div className="flex-1">
                         <p className="text-sm text-violet-300 font-medium">
-                            {currentStage
-                                ? stageLabels[currentStage.stage] || "Обработка..."
-                                : "Обработка..."
+                            {processingDocs.length > 1
+                                ? `Обработка ${processingDocs.length} документов...`
+                                : currentStage
+                                    ? stageLabels[currentStage.stage] || "Обработка..."
+                                    : "Обработка..."
                             }
                         </p>
                         <div className="mt-2">
