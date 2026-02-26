@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     
     # RAG settings
     embedding_model: str = "nomic-embed-text"
-    chat_model: str = "llama3"
+    chat_model: str = "qwen2.5:7b"
     chunk_size: int = 1500  # Larger chunks for tables
     chunk_overlap: int = 300  # More overlap to avoid splitting tables
     top_k_chunks: int = 10  # Retrieve more chunks for better context
@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     enable_reranker: bool = True         # Use cross-encoder for reranking results
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     reranker_top_k: int = 5              # Items to keep after reranking
+
+    # Agent settings
+    agent_model: str = "qwen2.5:7b"      # Model used by Flowise agent tools
+    agent_max_iterations: int = 8         # Max ReAct reasoning iterations
+    agent_summarize_chunks: int = 5       # Chunks used for document summarization
 
     # Retry settings
     embedding_retry_count: int = 3

@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
-import { FileText, Upload, MessageSquare, Sparkles, Zap, Globe, Database } from "lucide-react";
+import { useState, useEffect, MouseEvent } from "react";
+import {
+    Database, Upload, FileText, Globe, Bot, Plus,
+    CheckCircle, Clock, AlertCircle, Trash2, RefreshCw,
+    MessageSquare, Sparkles
+} from "lucide-react";
+import AgentChat from "@/components/AgentChat";
 import UploadZone from "@/components/UploadZone";
-import DocumentList from "@/components/DocumentList";
-import ChatInterface from "@/components/ChatInterface";
 import FileViewer from "@/components/FileViewer";
 import SyncSourcePanel from "@/components/SyncSourcePanel";
 
@@ -21,369 +24,258 @@ interface Document {
     created_at: string;
 }
 
-interface Message {
-    id: string;
-    role: "user" | "assistant";
-    content: string;
-}
-
-interface ChatState {
-    messages: Message[];
-    sessionId: number | null;
-}
+type ChatMode = "document" | "global";
 
 export default function Home() {
     const [documents, setDocuments] = useState<Document[]>([]);
-    const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
-    const [activeTab, setActiveTab] = useState<"upload" | "chat" | "global">("upload");
+    const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
+    const [chatMode, setChatMode] = useState<ChatMode>("global");
     const [showPdf, setShowPdf] = useState(false);
-    const [chatStateMap, setChatStateMap] = useState<Record<string, ChatState>>({});
-    const [isLoading, setIsLoading] = useState(true);
+    const [showUpload, setShowUpload] = useState(false);
+    const [showSync, setShowSync] = useState(false);
 
-    const GLOBAL_CHAT_KEY = "__global__";
-
+    // Load documents
     useEffect(() => {
-        const fetchDocuments = async () => {
+        const load = async () => {
             try {
-                const response = await fetch("/api/documents");
-                if (response.ok) {
-                    const data = await response.json();
+                const r = await fetch("/api/documents");
+                if (r.ok) {
+                    const data: Document[] = await r.json();
                     setDocuments(data);
-                    const readyDoc = data.find((d: Document) => d.status === "ready");
-                    if (readyDoc) {
-                        setSelectedDocument(readyDoc);
-                        setActiveTab("chat");
-                    }
+                    const ready = data.find(d => d.status === "ready");
+                    if (ready) { setSelectedDoc(ready); setChatMode("document"); }
                 }
-            } catch (error) {
-                console.error("Failed to fetch documents:", error);
-            } finally {
-                setIsLoading(false);
-            }
+            } catch { }
         };
-        fetchDocuments();
+        load();
     }, []);
 
+    // Poll processing docs
     useEffect(() => {
-        const processingDocs = documents.filter(d => d.status === "processing");
-        if (processingDocs.length === 0) return;
-        const interval = setInterval(async () => {
-            for (const doc of processingDocs) {
+        const proc = documents.filter(d => d.status === "processing");
+        if (!proc.length) return;
+        const t = setInterval(async () => {
+            for (const doc of proc) {
                 try {
-                    const response = await fetch(`/api/documents/${doc.id}`);
-                    if (response.ok) {
-                        const updatedDoc = await response.json();
-                        setDocuments(prev => prev.map(d =>
-                            d.id === updatedDoc.id ? updatedDoc : d
-                        ));
-                        if (selectedDocument?.id === updatedDoc.id) {
-                            setSelectedDocument(updatedDoc);
-                        }
-                        if (updatedDoc.status === "ready" && selectedDocument?.id === updatedDoc.id) {
-                            setActiveTab("chat");
-                        }
+                    const r = await fetch(`/api/documents/${doc.id}`);
+                    if (r.ok) {
+                        const upd: Document = await r.json();
+                        setDocuments(prev => prev.map(d => d.id === upd.id ? upd : d));
+                        if (selectedDoc?.id === upd.id) setSelectedDoc(upd);
                     }
-                } catch (error) {
-                    console.error("Error polling document status:", error);
-                }
+                } catch { }
             }
         }, 1500);
-        return () => clearInterval(interval);
-    }, [documents, selectedDocument]);
+        return () => clearInterval(t);
+    }, [documents, selectedDoc]);
 
-    const currentDocChatState = selectedDocument ? chatStateMap[String(selectedDocument.id)] : null;
-    const globalChatState = chatStateMap[GLOBAL_CHAT_KEY] || null;
-
-    const handleDocMessagesChange = useCallback((messages: Message[], sessionId: number | null) => {
-        if (selectedDocument) {
-            setChatStateMap(prev => ({
-                ...prev,
-                [String(selectedDocument.id)]: { messages, sessionId }
-            }));
-        }
-    }, [selectedDocument]);
-
-    const handleGlobalMessagesChange = useCallback((messages: Message[], sessionId: number | null) => {
-        setChatStateMap(prev => ({
-            ...prev,
-            [GLOBAL_CHAT_KEY]: { messages, sessionId }
-        }));
-    }, [GLOBAL_CHAT_KEY]);
-
-    const handleDocumentUploaded = (doc: Document) => {
+    const handleUploaded = (doc: Document) => {
         setDocuments(prev => [doc, ...prev]);
-        setSelectedDocument(doc);
+        setSelectedDoc(doc);
+        setShowUpload(false);
     };
 
-    const handleDocumentReady = (docId: number, pageCount: number) => {
-        setDocuments(prev =>
-            prev.map(d =>
-                d.id === docId ? { ...d, status: "ready" as const, page_count: pageCount } : d
-            )
-        );
-        setActiveTab("chat");
+    const handleReady = (docId: number) => {
+        setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status: "ready" as const } : d));
     };
 
-    const handleSelectDocument = (doc: Document) => {
-        setSelectedDocument(doc);
-        if (doc.status === "ready") {
-            setActiveTab("chat");
-        }
+    const deleteDoc = async (docId: number, e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+            await fetch(`/api/documents/${docId}`, { method: "DELETE" });
+            setDocuments(prev => prev.filter(d => d.id !== docId));
+            if (selectedDoc?.id === docId) {
+                setSelectedDoc(null);
+                setChatMode("global");
+            }
+        } catch { }
     };
 
-    const handleDeleteDocument = (docId: number) => {
-        setDocuments(prev => prev.filter(d => d.id !== docId));
-        if (selectedDocument?.id === docId) {
-            setSelectedDocument(null);
-            setActiveTab("upload");
-        }
-        setChatStateMap(prev => {
-            const next = { ...prev };
-            delete next[String(docId)];
-            return next;
-        });
+    const selectDoc = (doc: Document) => {
+        setSelectedDoc(doc);
+        setChatMode("document");
     };
 
-    const handleDeleteFailed = () => {
-        const failedIds = documents.filter(d => d.status === "failed").map(d => d.id);
-        setDocuments(prev => prev.filter(d => d.status !== "failed"));
-        if (selectedDocument && failedIds.includes(selectedDocument.id)) {
-            setSelectedDocument(null);
-            setActiveTab("upload");
-        }
-        setChatStateMap(prev => {
-            const next = { ...prev };
-            failedIds.forEach(id => delete next[String(id)]);
-            return next;
-        });
-    };
-
-    const tabs = [
-        { key: "upload" as const, label: "Обзор", icon: <Sparkles className="w-3.5 h-3.5" /> },
-        { key: "chat" as const, label: "Документ", icon: <MessageSquare className="w-3.5 h-3.5" /> },
-        { key: "global" as const, label: "Все документы", icon: <Globe className="w-3.5 h-3.5" /> },
-    ];
+    const ready = documents.filter(d => d.status === "ready");
 
     return (
-        <main className="min-h-screen relative">
-            {/* Aurora Background */}
-            <div className="aurora-bg">
-                <div className="gradient-orb gradient-orb-1" />
-                <div className="gradient-orb gradient-orb-2" />
-                <div className="gradient-orb gradient-orb-3" />
-            </div>
-
-            <div className="relative z-10 px-4 lg:px-6 py-3">
-                {/* ── Header ── */}
-                <header
-                    className="max-w-[1920px] mx-auto mb-3"
-                    style={{ animation: "slideInUp 0.5s cubic-bezier(0.16,1,0.3,1) both" }}
-                >
-                    <div className="flex items-center gap-3">
-                        {/* Logo mark */}
-                        <div style={{
-                            width: 36, height: 36, borderRadius: 11, flexShrink: 0,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                            boxShadow: '0 4px 18px rgba(99,102,241,0.42), inset 0 1px 0 rgba(255,255,255,0.18)'
-                        }}>
-                            <Database className="w-4.5 h-4.5 text-white" style={{ width: 18, height: 18 }} />
-                        </div>
-                        <div>
-                            <h1 className="text-base font-bold leading-tight" style={{
-                                fontFamily: "'Plus Jakarta Sans', Inter, sans-serif",
-                                background: 'linear-gradient(135deg, #e0e7ff 0%, #a5b4fc 60%, #818cf8 100%)',
-                                WebkitBackgroundClip: 'text',
-                                WebkitTextFillColor: 'transparent',
-                                backgroundClip: 'text'
-                            }}>
-                                RAG System
-                            </h1>
-                            <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
-                                Анализ документов с AI
-                            </p>
-                        </div>
-
-                        {/* Status badge */}
-                        <div style={{
-                            marginLeft: 'auto',
-                            display: 'flex', alignItems: 'center', gap: 6,
-                            padding: '4px 10px', borderRadius: 100,
-                            background: 'rgba(16,185,129,0.08)',
-                            border: '1px solid rgba(16,185,129,0.20)',
-                        }}>
-                            <span className="status-dot status-ready" style={{ width: 6, height: 6 }} />
-                            <span className="text-[10px] font-medium" style={{ color: '#34d399' }}>
-                                {documents.filter(d => d.status === "ready").length} документов
-                            </span>
-                        </div>
+        <div className="app-shell">
+            {/* ═══ SIDEBAR ═══ */}
+            <aside className="sidebar">
+                {/* Logo */}
+                <div className="sidebar-logo">
+                    <div className="sidebar-logo-mark">
+                        <Database style={{ width: 16, height: 16, color: "#fff" }} />
                     </div>
-                </header>
+                    <div className="sidebar-logo-text">
+                        <h1>RAG System</h1>
+                        <p>Анализ документов с AI</p>
+                    </div>
+                </div>
 
-                {/* ── Main 2-column grid ── */}
-                <div className="max-w-[1920px] mx-auto grid grid-cols-1 lg:grid-cols-[340px_1fr] xl:grid-cols-[360px_1fr] gap-3">
+                {/* Upload button */}
+                <div style={{ padding: "12px 14px 0" }}>
+                    <button
+                        onClick={() => setShowUpload(v => !v)}
+                        style={{
+                            width: "100%", display: "flex", alignItems: "center", gap: 8,
+                            padding: "9px 12px", borderRadius: 10,
+                            border: "1.5px dashed var(--border-md)",
+                            background: showUpload ? "var(--accent-dim)" : "transparent",
+                            color: showUpload ? "var(--accent)" : "var(--text-3)",
+                            cursor: "pointer", fontSize: 13, fontWeight: 500,
+                            fontFamily: "inherit", transition: "all .2s",
+                        }}
+                    >
+                        <Upload style={{ width: 15, height: 15 }} />
+                        Загрузить документы
+                    </button>
 
-                    {/* ═══ Left Panel ═══ */}
-                    <div className="lg:col-span-1 space-y-3 lg:max-h-[calc(100vh-4.5rem)] lg:overflow-y-auto lg:pr-1">
-
-                        {/* Upload */}
-                        <div
-                            className="glass-card p-4"
-                            style={{ animation: "slideInUp 0.55s cubic-bezier(0.16,1,0.3,1) 60ms both" }}
-                        >
-                            <UploadZone
-                                onDocumentUploaded={handleDocumentUploaded}
-                                onDocumentReady={handleDocumentReady}
-                            />
+                    {showUpload && (
+                        <div style={{ marginTop: 10, animation: "fadeUp .2s ease" }}>
+                            <UploadZone onDocumentUploaded={handleUploaded} onDocumentReady={handleReady} />
                         </div>
+                    )}
+                </div>
 
-                        {/* Documents */}
+                {/* Documents list */}
+                <div className="sidebar-section" style={{ marginTop: 14 }}>
+                    <div className="sidebar-section-header">
+                        <span className="sidebar-section-title">Документы</span>
+                        <span style={{
+                            fontSize: 11, fontWeight: 600,
+                            background: "var(--accent-dim)", color: "var(--accent)",
+                            padding: "1px 7px", borderRadius: 100,
+                        }}>{ready.length}</span>
+                    </div>
+
+                    {documents.length === 0 && (
+                        <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text-3)", fontSize: 12 }}>
+                            <FileText style={{ width: 28, height: 28, margin: "0 auto 8px", opacity: .4 }} />
+                            <p>Нет документов</p>
+                        </div>
+                    )}
+
+                    {documents.map(doc => (
                         <div
-                            className="glass-card p-4"
-                            style={{ animation: "slideInUp 0.55s cubic-bezier(0.16,1,0.3,1) 120ms both" }}
+                            key={doc.id}
+                            className={`doc-row ${selectedDoc?.id === doc.id && chatMode === "document" ? "active" : ""}`}
+                            onClick={() => selectDoc(doc)}
                         >
-                            <div className="flex items-center justify-between mb-3">
-                                <h2 className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
-                                    Документы
-                                </h2>
-                                {documents.length > 0 && (
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{
-                                        color: 'var(--accent-secondary)',
-                                        background: 'rgba(99,102,241,0.10)',
-                                        border: '1px solid rgba(99,102,241,0.18)'
-                                    }}>
-                                        {documents.length}
-                                    </span>
-                                )}
+                            <div className="doc-icon">
+                                <FileText style={{ width: 14, height: 14, color: selectedDoc?.id === doc.id ? "var(--accent)" : "var(--text-3)" }} />
                             </div>
-                            <DocumentList
-                                documents={documents}
-                                selectedDocument={selectedDocument}
-                                onSelectDocument={handleSelectDocument}
-                                onViewFile={() => setShowPdf(true)}
-                                onDeleteDocument={handleDeleteDocument}
-                                onDeleteFailed={handleDeleteFailed}
-                            />
-                        </div>
-
-                        {/* Yandex Disk */}
-                        <div style={{ animation: "slideInUp 0.55s cubic-bezier(0.16,1,0.3,1) 180ms both" }}>
-                            <SyncSourcePanel onDocumentUploaded={handleDocumentUploaded} existingDocuments={documents} />
-                        </div>
-                    </div>
-
-                    {/* ═══ Right Panel — Chat ═══ */}
-                    <div style={{ animation: "slideInUp 0.6s cubic-bezier(0.16,1,0.3,1) 200ms both" }}>
-                        <div className="glass-card overflow-hidden h-[calc(100vh-4.5rem)] flex flex-col">
-
-                            {/* Tabs */}
-                            <div className="px-4 pt-2">
-                                <div className="tab-nav">
-                                    {tabs.map(tab => (
-                                        <button
-                                            key={tab.key}
-                                            onClick={() => setActiveTab(tab.key)}
-                                            className={`tab-item ${activeTab === tab.key ? "active" : ""}`}
-                                        >
-                                            {tab.icon}
-                                            {tab.label}
-                                        </button>
-                                    ))}
+                            <div className="doc-row-info">
+                                <div className="doc-row-name" title={doc.original_filename}>
+                                    {doc.original_filename}
+                                </div>
+                                <div className="doc-row-meta">
+                                    {doc.status === "ready" && (
+                                        <>
+                                            <span className="dot dot-ready" />
+                                            <span>{doc.page_count} стр.</span>
+                                        </>
+                                    )}
+                                    {doc.status === "processing" && (
+                                        <>
+                                            <span className="dot dot-proc" />
+                                            <span>Обработка…</span>
+                                        </>
+                                    )}
+                                    {doc.status === "failed" && (
+                                        <>
+                                            <span className="dot dot-error" />
+                                            <span>Ошибка</span>
+                                        </>
+                                    )}
                                 </div>
                             </div>
+                            <button
+                                className="icon-btn"
+                                onClick={(e) => deleteDoc(doc.id, e)}
+                                style={{ opacity: 0 }}
+                                onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
+                                onMouseLeave={e => (e.currentTarget.style.opacity = "0")}
+                            >
+                                <Trash2 style={{ width: 12, height: 12 }} />
+                            </button>
+                        </div>
+                    ))}
+                </div>
 
-                            {/* Content */}
-                            <div className="flex-1 min-h-0">
-                                {activeTab === "upload" ? (
-                                    <div className="flex flex-col items-center justify-center h-full p-6">
-                                        <div className="text-center max-w-sm">
-                                            {/* Hero icon */}
-                                            <div className="empty-state-icon mx-auto mb-5" style={{
-                                                width: 72, height: 72, borderRadius: 22,
-                                                background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(79,70,229,0.08))',
-                                                border: '1px solid rgba(99,102,241,0.22)',
-                                                boxShadow: '0 0 40px rgba(99,102,241,0.12)'
-                                            }}>
-                                                <Sparkles className="w-8 h-8" style={{ color: 'var(--accent-secondary)' }} />
-                                            </div>
+                {/* Sync at bottom */}
+                <div className="sidebar-bottom">
+                    <div className="sync-row" onClick={() => setShowSync(v => !v)}>
+                        <RefreshCw style={{ width: 14, height: 14 }} />
+                        <span>Яндекс.Диск</span>
+                        <Plus style={{ width: 12, height: 12, marginLeft: "auto" }} />
+                    </div>
+                    {showSync && (
+                        <div style={{ marginTop: 8, animation: "fadeUp .2s ease" }}>
+                            <SyncSourcePanel onDocumentUploaded={handleUploaded} existingDocuments={documents} />
+                        </div>
+                    )}
+                </div>
+            </aside>
 
-                                            <h3 className="text-lg font-bold mb-2" style={{
-                                                fontFamily: "'Plus Jakarta Sans', Inter, sans-serif",
-                                                background: 'linear-gradient(135deg, #e0e7ff 0%, #a5b4fc 100%)',
-                                                WebkitBackgroundClip: 'text',
-                                                WebkitTextFillColor: 'transparent',
-                                                backgroundClip: 'text'
-                                            }}>
-                                                Добро пожаловать
-                                            </h3>
-                                            <p className="text-sm leading-relaxed mb-7" style={{ color: 'var(--text-tertiary)' }}>
-                                                Загрузите документы слева, затем задавайте вопросы через вкладки «Документ» или «Все документы»
-                                            </p>
+            {/* ═══ MAIN PANEL ═══ */}
+            <main className="main-panel">
+                {/* Top bar */}
+                <div className="topbar">
+                    <button
+                        className={`tab-btn ${chatMode === "document" ? "active" : ""}`}
+                        onClick={() => { if (selectedDoc) setChatMode("document"); }}
+                        disabled={!selectedDoc}
+                        style={{ opacity: selectedDoc ? 1 : 0.4 }}
+                    >
+                        <MessageSquare style={{ width: 14, height: 14 }} />
+                        Документ
+                    </button>
+                    <button
+                        className={`tab-btn ${chatMode === "global" ? "active" : ""}`}
+                        onClick={() => setChatMode("global")}
+                    >
+                        <Globe style={{ width: 14, height: 14 }} />
+                        Все документы
+                    </button>
 
-                                            <div className="space-y-2.5">
-                                                <div
-                                                    className="feature-card"
-                                                    style={{ animation: "slideInUp 0.5s cubic-bezier(0.16,1,0.3,1) 100ms both" }}
-                                                >
-                                                    <div className="feature-icon">
-                                                        <Zap className="w-4 h-4" style={{ color: 'var(--accent-secondary)' }} />
-                                                    </div>
-                                                    <div className="text-left">
-                                                        <p className="text-[12px] font-semibold" style={{ color: 'var(--text-primary)' }}>Умный анализ</p>
-                                                        <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>Автоматический чанкинг и эмбеддинги</p>
-                                                    </div>
-                                                </div>
-                                                <div
-                                                    className="feature-card"
-                                                    style={{ animation: "slideInUp 0.5s cubic-bezier(0.16,1,0.3,1) 180ms both" }}
-                                                >
-                                                    <div className="feature-icon" style={{
-                                                        background: 'linear-gradient(135deg, rgba(6,182,212,0.15), rgba(6,182,212,0.05))',
-                                                        border: '1px solid rgba(6,182,212,0.20)'
-                                                    }}>
-                                                        <Globe className="w-4 h-4" style={{ color: 'var(--cyan)' }} />
-                                                    </div>
-                                                    <div className="text-left">
-                                                        <p className="text-[12px] font-semibold" style={{ color: 'var(--text-primary)' }}>Глобальный поиск</p>
-                                                        <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>Вопросы по всей базе знаний</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ) : activeTab === "chat" ? (
-                                    <ChatInterface
-                                        document={selectedDocument}
-                                        isGlobalMode={false}
-                                        onNoDocument={() => setActiveTab("upload")}
-                                        messages={currentDocChatState?.messages || []}
-                                        sessionId={currentDocChatState?.sessionId || null}
-                                        onMessagesChange={handleDocMessagesChange}
-                                    />
-                                ) : (
-                                    <ChatInterface
-                                        document={null}
-                                        isGlobalMode={true}
-                                        onNoDocument={() => setActiveTab("upload")}
-                                        messages={globalChatState?.messages || []}
-                                        sessionId={globalChatState?.sessionId || null}
-                                        onMessagesChange={handleGlobalMessagesChange}
-                                    />
-                                )}
-                            </div>
+                    <div className="topbar-right">
+                        <div className="status-pill">
+                            <span className="dot dot-ready" style={{ width: 6, height: 6 }} />
+                            {ready.length} готово
                         </div>
                     </div>
                 </div>
-            </div>
 
-            {/* PDF Viewer Modal */}
-            {showPdf && selectedDocument && (
+                {/* Chat content */}
+                <div className="content-area">
+                    {chatMode === "document" && !selectedDoc ? (
+                        <div className="welcome-screen">
+                            <div className="welcome-icon">
+                                <Sparkles style={{ width: 28, height: 28, color: "var(--accent)" }} />
+                            </div>
+                            <h2>Выберите документ</h2>
+                            <p>Нажмите на документ в левом меню, чтобы начать диалог с ним</p>
+                        </div>
+                    ) : chatMode === "document" && selectedDoc ? (
+                        <AgentChat
+                            document={{ id: selectedDoc.id, name: selectedDoc.original_filename }}
+                            sessionKey={String(selectedDoc.id)}
+                        />
+                    ) : (
+                        <AgentChat document={null} sessionKey="global" />
+                    )}
+                </div>
+            </main>
+
+            {/* PDF viewer */}
+            {showPdf && selectedDoc && (
                 <FileViewer
-                    documentId={selectedDocument.id}
-                    filename={selectedDocument.original_filename}
+                    documentId={selectedDoc.id}
+                    filename={selectedDoc.original_filename}
                     onClose={() => setShowPdf(false)}
                 />
             )}
-        </main>
+        </div>
     );
 }

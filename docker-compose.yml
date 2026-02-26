@@ -78,6 +78,9 @@ services:
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
       - API_URL=http://backend:8000
+      - NEXT_PUBLIC_FLOWISE_CHATFLOW_ID=2d705a6e-3943-484a-9489-c79b0e6ce9db
+      - FLOWISE_INTERNAL_HOST=http://flowise:3000
+      - FLOWISE_API_KEY=jsrW5GQQDIJBSQx_tc9c4B-otQJ5RDzudpGohp2jMiU
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -86,7 +89,24 @@ services:
       - backend
     command: npm run dev
 
+  # Flowise — visual AI agent builder
+  flowise:
+    image: flowiseai/flowise:latest
+    container_name: rag-flowise
+    ports:
+      - "3001:3000"
+    environment:
+      - DATABASE_PATH=/root/.flowise
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+    volumes:
+      - flowise_data:/root/.flowise
+    depends_on:
+      - ollama
+      - postgres
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   ollama_data:
   uploads_data:
+  flowise_data:
