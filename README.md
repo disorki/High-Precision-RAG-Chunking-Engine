@@ -71,7 +71,7 @@ The application is distributed across four robust microservices, seamlessly orch
 
 Clone the repository and ignite the Docker environment:
 ```bash
-git clone https://github.com/your-username/high-precision-rag.git
+git clone https://github.com/disorki/High-Precision-RAG-Chunking-Engine/tree/version-2.0
 cd high-precision-rag
 docker-compose up --build -d
 ```
