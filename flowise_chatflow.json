@@ -1,0 +1,557 @@
+{
+    "name": "University RAG Agent",
+    "nodes": [
+        {
+            "id": "chatOllama_0",
+            "position": {
+                "x": 120,
+                "y": 180
+            },
+            "type": "customNode",
+            "data": {
+                "id": "chatOllama_0",
+                "label": "ChatOllama",
+                "version": 4,
+                "name": "chatOllama",
+                "type": "ChatOllama",
+                "baseClasses": [
+                    "ChatOllama",
+                    "SimpleChatModel",
+                    "BaseChatModel"
+                ],
+                "category": "Chat Models",
+                "description": "Chat completion using open-source LLM on Ollama",
+                "inputParams": [
+                    {
+                        "label": "Base URL",
+                        "name": "baseUrl",
+                        "type": "string",
+                        "default": "http://localhost:11434"
+                    },
+                    {
+                        "label": "Model Name",
+                        "name": "modelName",
+                        "type": "string",
+                        "placeholder": "llama2"
+                    },
+                    {
+                        "label": "Temperature",
+                        "name": "temperature",
+                        "type": "number",
+                        "default": 0.9,
+                        "optional": true
+                    }
+                ],
+                "inputAnchors": [],
+                "inputs": {
+                    "baseUrl": "http://ollama:11434",
+                    "modelName": "qwen2.5:7b",
+                    "temperature": 0.2,
+                    "numCtx": 8192
+                },
+                "outputs": {},
+                "selected": false
+            }
+        },
+        {
+            "id": "bufferMemory_0",
+            "position": {
+                "x": 120,
+                "y": 480
+            },
+            "type": "customNode",
+            "data": {
+                "id": "bufferMemory_0",
+                "label": "Buffer Memory",
+                "version": 2,
+                "name": "bufferMemory",
+                "type": "BufferMemory",
+                "baseClasses": [
+                    "BufferMemory",
+                    "BaseChatMemory",
+                    "BaseMemory"
+                ],
+                "category": "Memory",
+                "description": "Retrieve chat messages stored in database",
+                "inputParams": [
+                    {
+                        "label": "Session Id",
+                        "name": "sessionId",
+                        "type": "string",
+                        "description": "Leave empty for auto-generated session ID",
+                        "default": "",
+                        "optional": true
+                    },
+                    {
+                        "label": "Memory Key",
+                        "name": "memoryKey",
+                        "type": "string",
+                        "default": "chat_history"
+                    }
+                ],
+                "inputAnchors": [],
+                "inputs": {
+                    "sessionId": "",
+                    "memoryKey": "chat_history"
+                },
+                "outputs": {},
+                "selected": false
+            }
+        },
+        {
+            "id": "customTool_search_all",
+            "position": {
+                "x": 120,
+                "y": 780
+            },
+            "type": "customNode",
+            "data": {
+                "id": "customTool_search_all",
+                "label": "Custom Tool",
+                "version": 2,
+                "name": "customTool",
+                "type": "CustomTool",
+                "baseClasses": [
+                    "CustomTool",
+                    "Tool"
+                ],
+                "category": "Tools",
+                "description": "HTTP tool for calling custom API",
+                "inputParams": [
+                    {
+                        "label": "Tool Name",
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "label": "Tool Description",
+                        "name": "description",
+                        "type": "string",
+                        "rows": 3
+                    },
+                    {
+                        "label": "Return Direct",
+                        "name": "returnDirect",
+                        "type": "boolean",
+                        "optional": true
+                    }
+                ],
+                "inputAnchors": [],
+                "inputs": {
+                    "name": "search_all_documents",
+                    "description": "Semantic search across ALL documents in the knowledge base. Use this for general questions not tied to a specific document. Input must be JSON: {\"query\": \"your search query\", \"top_k\": 8}",
+                    "func": "const fetch = require('node-fetch');\nconst input = JSON.parse($input);\nconst response = await fetch('http://backend:8000/api/agent-tools/search', {\n  method: 'POST',\n  headers: {'Content-Type': 'application/json'},\n  body: JSON.stringify({query: input.query, top_k: input.top_k || 8})\n});\nconst data = await response.json();\nreturn JSON.stringify(data);",
+                    "returnDirect": false
+                },
+                "outputs": {},
+                "selected": false
+            }
+        },
+        {
+            "id": "customTool_list_docs",
+            "position": {
+                "x": 450,
+                "y": 780
+            },
+            "type": "customNode",
+            "data": {
+                "id": "customTool_list_docs",
+                "label": "Custom Tool",
+                "version": 2,
+                "name": "customTool",
+                "type": "CustomTool",
+                "baseClasses": [
+                    "CustomTool",
+                    "Tool"
+                ],
+                "category": "Tools",
+                "description": "HTTP tool for calling custom API",
+                "inputParams": [
+                    {
+                        "label": "Tool Name",
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "label": "Tool Description",
+                        "name": "description",
+                        "type": "string",
+                        "rows": 3
+                    },
+                    {
+                        "label": "Return Direct",
+                        "name": "returnDirect",
+                        "type": "boolean",
+                        "optional": true
+                    }
+                ],
+                "inputAnchors": [],
+                "inputs": {
+                    "name": "list_documents",
+                    "description": "Get the complete list of all documents in the knowledge base with their IDs, names, status, and page counts. ALWAYS call this first when user asks what documents are available or before searching in a specific document. Input: any string (ignored)",
+                    "func": "const fetch = require('node-fetch');\nconst response = await fetch('http://backend:8000/api/agent-tools/documents', {\n  method: 'GET',\n  headers: {'Content-Type': 'application/json'}\n});\nconst data = await response.json();\nreturn JSON.stringify(data);",
+                    "returnDirect": false
+                },
+                "outputs": {},
+                "selected": false
+            }
+        },
+        {
+            "id": "customTool_summarize",
+            "position": {
+                "x": 780,
+                "y": 780
+            },
+            "type": "customNode",
+            "data": {
+                "id": "customTool_summarize",
+                "label": "Custom Tool",
+                "version": 2,
+                "name": "customTool",
+                "type": "CustomTool",
+                "baseClasses": [
+                    "CustomTool",
+                    "Tool"
+                ],
+                "category": "Tools",
+                "description": "HTTP tool for calling custom API",
+                "inputParams": [
+                    {
+                        "label": "Tool Name",
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "label": "Tool Description",
+                        "name": "description",
+                        "type": "string",
+                        "rows": 3
+                    }
+                ],
+                "inputAnchors": [],
+                "inputs": {
+                    "name": "summarize_document",
+                    "description": "Generate an AI summary of a specific document. Use when user asks what a document is about or needs an overview. Input must be JSON: {\"document_id\": 1}",
+                    "func": "const fetch = require('node-fetch');\nconst input = JSON.parse($input);\nconst response = await fetch(`http://backend:8000/api/agent-tools/documents/${input.document_id}/summarize`, {\n  method: 'GET',\n  headers: {'Content-Type': 'application/json'}\n});\nconst data = await response.json();\nreturn JSON.stringify(data);"
+                },
+                "outputs": {},
+                "selected": false
+            }
+        },
+        {
+            "id": "customTool_get_info",
+            "position": {
+                "x": 1110,
+                "y": 780
+            },
+            "type": "customNode",
+            "data": {
+                "id": "customTool_get_info",
+                "label": "Custom Tool",
+                "version": 2,
+                "name": "customTool",
+                "type": "CustomTool",
+                "baseClasses": [
+                    "CustomTool",
+                    "Tool"
+                ],
+                "category": "Tools",
+                "description": "HTTP tool for calling custom API",
+                "inputParams": [
+                    {
+                        "label": "Tool Name",
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "label": "Tool Description",
+                        "name": "description",
+                        "type": "string",
+                        "rows": 3
+                    }
+                ],
+                "inputAnchors": [],
+                "inputs": {
+                    "name": "get_document_info",
+                    "description": "Get metadata and a preview of a specific document. Use before deep search to understand what a document contains. Input must be JSON: {\"document_id\": 1}",
+                    "func": "const fetch = require('node-fetch');\nconst input = JSON.parse($input);\nconst response = await fetch(`http://backend:8000/api/agent-tools/documents/${input.document_id}`, {\n  method: 'GET',\n  headers: {'Content-Type': 'application/json'}\n});\nconst data = await response.json();\nreturn JSON.stringify(data);"
+                },
+                "outputs": {},
+                "selected": false
+            }
+        },
+        {
+            "id": "customTool_search_doc",
+            "position": {
+                "x": 1440,
+                "y": 780
+            },
+            "type": "customNode",
+            "data": {
+                "id": "customTool_search_doc",
+                "label": "Custom Tool",
+                "version": 2,
+                "name": "customTool",
+                "type": "CustomTool",
+                "baseClasses": [
+                    "CustomTool",
+                    "Tool"
+                ],
+                "category": "Tools",
+                "description": "HTTP tool for calling custom API",
+                "inputParams": [
+                    {
+                        "label": "Tool Name",
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "label": "Tool Description",
+                        "name": "description",
+                        "type": "string",
+                        "rows": 3
+                    }
+                ],
+                "inputAnchors": [],
+                "inputs": {
+                    "name": "search_in_document",
+                    "description": "Search for information within a SPECIFIC document only. Use when user specifies which document to search. Input must be JSON: {\"document_id\": 1, \"query\": \"search text\", \"top_k\": 6}",
+                    "func": "const fetch = require('node-fetch');\nconst input = JSON.parse($input);\nconst response = await fetch(`http://backend:8000/api/agent-tools/search/${input.document_id}`, {\n  method: 'POST',\n  headers: {'Content-Type': 'application/json'},\n  body: JSON.stringify({query: input.query, top_k: input.top_k || 6})\n});\nconst data = await response.json();\nreturn JSON.stringify(data);"
+                },
+                "outputs": {},
+                "selected": false
+            }
+        },
+        {
+            "id": "customTool_compare",
+            "position": {
+                "x": 1770,
+                "y": 780
+            },
+            "type": "customNode",
+            "data": {
+                "id": "customTool_compare",
+                "label": "Custom Tool",
+                "version": 2,
+                "name": "customTool",
+                "type": "CustomTool",
+                "baseClasses": [
+                    "CustomTool",
+                    "Tool"
+                ],
+                "category": "Tools",
+                "description": "HTTP tool for calling custom API",
+                "inputParams": [
+                    {
+                        "label": "Tool Name",
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "label": "Tool Description",
+                        "name": "description",
+                        "type": "string",
+                        "rows": 3
+                    }
+                ],
+                "inputAnchors": [],
+                "inputs": {
+                    "name": "compare_documents",
+                    "description": "Compare multiple documents on a specific topic. Use when user asks to compare or contrast documents. Input must be JSON: {\"query\": \"what to compare\", \"document_ids\": [1, 2]}",
+                    "func": "const fetch = require('node-fetch');\nconst input = JSON.parse($input);\nconst response = await fetch('http://backend:8000/api/agent-tools/compare', {\n  method: 'POST',\n  headers: {'Content-Type': 'application/json'},\n  body: JSON.stringify({query: input.query, document_ids: input.document_ids})\n});\nconst data = await response.json();\nreturn JSON.stringify(data);"
+                },
+                "outputs": {},
+                "selected": false
+            }
+        },
+        {
+            "id": "customTool_extract",
+            "position": {
+                "x": 2100,
+                "y": 780
+            },
+            "type": "customNode",
+            "data": {
+                "id": "customTool_extract",
+                "label": "Custom Tool",
+                "version": 2,
+                "name": "customTool",
+                "type": "CustomTool",
+                "baseClasses": [
+                    "CustomTool",
+                    "Tool"
+                ],
+                "category": "Tools",
+                "description": "HTTP tool for calling custom API",
+                "inputParams": [
+                    {
+                        "label": "Tool Name",
+                        "name": "name",
+                        "type": "string"
+                    },
+                    {
+                        "label": "Tool Description",
+                        "name": "description",
+                        "type": "string",
+                        "rows": 3
+                    }
+                ],
+                "inputAnchors": [],
+                "inputs": {
+                    "name": "extract_facts",
+                    "description": "Extract specific facts, numbers, names, dates, or data points from documents. Use for precise extraction like deadlines, names, budgets. Input must be JSON: {\"query\": \"fact to extract\", \"document_id\": null}",
+                    "func": "const fetch = require('node-fetch');\nconst input = JSON.parse($input);\nconst response = await fetch('http://backend:8000/api/agent-tools/extract', {\n  method: 'POST',\n  headers: {'Content-Type': 'application/json'},\n  body: JSON.stringify({query: input.query, document_id: input.document_id || null})\n});\nconst data = await response.json();\nreturn JSON.stringify(data);"
+                },
+                "outputs": {},
+                "selected": false
+            }
+        },
+        {
+            "id": "toolAgent_0",
+            "position": {
+                "x": 1100,
+                "y": 280
+            },
+            "type": "customNode",
+            "data": {
+                "id": "toolAgent_0",
+                "label": "Tool Agent",
+                "version": 2,
+                "name": "toolAgent",
+                "type": "AgentExecutor",
+                "baseClasses": [
+                    "AgentExecutor"
+                ],
+                "category": "Agents",
+                "description": "Agent that uses function calling to pick the right tool and args",
+                "inputParams": [
+                    {
+                        "label": "System Message",
+                        "name": "systemMessage",
+                        "type": "string",
+                        "rows": 4,
+                        "optional": true,
+                        "additionalParams": true
+                    },
+                    {
+                        "label": "Max Iterations",
+                        "name": "maxIterations",
+                        "type": "number",
+                        "optional": true,
+                        "additionalParams": true
+                    }
+                ],
+                "inputAnchors": [
+                    {
+                        "label": "Tools",
+                        "name": "tools",
+                        "type": "Tool",
+                        "list": true
+                    },
+                    {
+                        "label": "Language Model",
+                        "name": "model",
+                        "type": "BaseChatModel"
+                    },
+                    {
+                        "label": "Memory",
+                        "name": "memory",
+                        "type": "BaseChatMemory",
+                        "optional": true
+                    }
+                ],
+                "inputs": {
+                    "tools": [
+                        "{{customTool_search_all.data.instance}}",
+                        "{{customTool_list_docs.data.instance}}",
+                        "{{customTool_summarize.data.instance}}",
+                        "{{customTool_get_info.data.instance}}",
+                        "{{customTool_search_doc.data.instance}}",
+                        "{{customTool_compare.data.instance}}",
+                        "{{customTool_extract.data.instance}}"
+                    ],
+                    "model": "{{chatOllama_0.data.instance}}",
+                    "memory": "{{bufferMemory_0.data.instance}}",
+                    "systemMessage": "Ты — умный AI-ассистент для работы с документами университета.\nТвоя задача — помогать преподавателям и сотрудникам быстро находить нужную информацию без полного прочтения документов.\n\nПРАВИЛА:\n1. Всегда отвечай на языке пользователя (русский или английский).\n2. Для получения информации ВСЕГДА используй инструменты — не придумывай данные.\n3. Если вопрос сложный — раздели его на подзадачи и выполняй по шагам.\n4. При первом вопросе о документах используй list_documents чтобы узнать что есть в базе.\n5. Для сравнения документов используй compare_documents.\n6. Всегда указывай источник: название документа и номер страницы.\n7. Если информации недостаточно — честно скажи об этом.\n\nФОРМАТ ОТВЕТА:\n- Конкретный, структурированный ответ\n- Ссылки на источники [Документ: имя, Стр. X]\n- Таблицы Markdown для сравнений",
+                    "maxIterations": 8
+                },
+                "outputs": {},
+                "selected": false
+            }
+        }
+    ],
+    "edges": [
+        {
+            "id": "e-ollama-agent",
+            "source": "chatOllama_0",
+            "target": "toolAgent_0",
+            "sourceHandle": "chatOllama_0-output-chatOllama-ChatOllama|SimpleChatModel|BaseChatModel",
+            "targetHandle": "toolAgent_0-input-model-BaseChatModel",
+            "type": "buttonedge"
+        },
+        {
+            "id": "e-memory-agent",
+            "source": "bufferMemory_0",
+            "target": "toolAgent_0",
+            "sourceHandle": "bufferMemory_0-output-bufferMemory-BufferMemory|BaseChatMemory|BaseMemory",
+            "targetHandle": "toolAgent_0-input-memory-BaseChatMemory",
+            "type": "buttonedge"
+        },
+        {
+            "id": "e-tool-search-all",
+            "source": "customTool_search_all",
+            "target": "toolAgent_0",
+            "sourceHandle": "customTool_search_all-output-customTool-CustomTool|Tool",
+            "targetHandle": "toolAgent_0-input-tools-Tool",
+            "type": "buttonedge"
+        },
+        {
+            "id": "e-tool-list-docs",
+            "source": "customTool_list_docs",
+            "target": "toolAgent_0",
+            "sourceHandle": "customTool_list_docs-output-customTool-CustomTool|Tool",
+            "targetHandle": "toolAgent_0-input-tools-Tool",
+            "type": "buttonedge"
+        },
+        {
+            "id": "e-tool-summarize",
+            "source": "customTool_summarize",
+            "target": "toolAgent_0",
+            "sourceHandle": "customTool_summarize-output-customTool-CustomTool|Tool",
+            "targetHandle": "toolAgent_0-input-tools-Tool",
+            "type": "buttonedge"
+        },
+        {
+            "id": "e-tool-get-info",
+            "source": "customTool_get_info",
+            "target": "toolAgent_0",
+            "sourceHandle": "customTool_get_info-output-customTool-CustomTool|Tool",
+            "targetHandle": "toolAgent_0-input-tools-Tool",
+            "type": "buttonedge"
+        },
+        {
+            "id": "e-tool-search-doc",
+            "source": "customTool_search_doc",
+            "target": "toolAgent_0",
+            "sourceHandle": "customTool_search_doc-output-customTool-CustomTool|Tool",
+            "targetHandle": "toolAgent_0-input-tools-Tool",
+            "type": "buttonedge"
+        },
+        {
+            "id": "e-tool-compare",
+            "source": "customTool_compare",
+            "target": "toolAgent_0",
+            "sourceHandle": "customTool_compare-output-customTool-CustomTool|Tool",
+            "targetHandle": "toolAgent_0-input-tools-Tool",
+            "type": "buttonedge"
+        },
+        {
+            "id": "e-tool-extract",
+            "source": "customTool_extract",
+            "target": "toolAgent_0",
+            "sourceHandle": "customTool_extract-output-customTool-CustomTool|Tool",
+            "targetHandle": "toolAgent_0-input-tools-Tool",
+            "type": "buttonedge"
+        }
+    ]
+}

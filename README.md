@@ -1,144 +1,131 @@
-# English | [Русский](README.ru.md)
+# High-Precision RAG Chunking Engine & Flowise AI Agent
 
-# High-Precision RAG Chunking Engine
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Python: 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-14-black.svg)](https://nextjs.org/)
+[![Docker](https://img.shields.io/badge/Docker-Enabled-blue.svg)](https://www.docker.com/)
 
-A specialized RAG (Retrieval-Augmented Generation) system for technical documentation. Features smart table-aware chunking, strict source citations, two-step answer generation with translation, and a streaming chat interface with conversation memory.
+> *Read this documentation in [Russian (Русский)](README.ru.md)*
 
-![Tech Stack](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-000000?style=flat&logo=next.js&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?style=flat&logo=postgresql&logoColor=white)
-![Ollama](https://img.shields.io/badge/Ollama-000000?style=flat&logoColor=white)
+A modern, high-precision Retrieval-Augmented Generation (RAG) system engineered for deep analytical document processing. The system features an integrated **Flowise ReAct AI Agent** and ensures complete data privacy through **fully local processing** using **Ollama** (powered by Qwen 2.5).
 
-## Key Features
+Designed for complex data extraction, synthesis, and analysis across texts, tables, and scanned document formats.
 
-### High-Precision RAG
-- **Table-Aware Chunking** -- preserves Markdown tables and data structures during ingestion.
-- **Smart Context Retrieval** -- filters chunks by relevance threshold and sorts by document order.
-- **Strict Citations** -- every fact is cited with `[Page X]` references.
-- **Query Rewriting** -- automatically converts conversational questions into precise search queries.
+---
 
-### Advanced Chat
-- **Two-Step Generation** -- the model first generates an answer in English (best reasoning quality), then translates to the user's language.
-- **Streaming Responses** -- real-time token streaming via Server-Sent Events (SSE).
-- **History Compression** -- automatically manages context window for long conversations.
-- **Large Context Window** -- optimized for up to 16k tokens.
+## Enterprise-Grade Features
 
-### Supported File Formats
-- PDF
-- Word (.docx) -- tables and paragraphs extracted in correct document order
-- Excel (.xlsx)
-- Plain text (.txt) -- auto-detects encoding (UTF-8, CP1251, Latin-1)
+*   **Autonomous AI Agent (Flowise Integration)**
+    *   Embedded ReAct (Reasoning and Acting) agent architecture.
+    *   Dynamic, autonomous tool selection to handle complex, multi-step user queries.
+*   **Comprehensive RAG Toolchain (7 Specialized Modules)**
+    1.  `search_all`: Global semantic vector search across the entire document repository.
+    2.  `search_document`: Targeted contextual search within a specified document.
+    3.  `list_documents`: Real-time retrieval of the loaded document index.
+    4.  `get_document_info`: Comprehensive temporal and structural metadata analysis.
+    5.  `summarize`: Advanced AI abstraction and summarization of massive text corpora.
+    6.  `compare_documents`: Cross-document fact-checking and comparative analysis.
+    7.  `extract_facts`: Precision data point extraction and structural mapping.
+*   **Seamless Cloud Integration**
+    *   Native Yandex.Disk integration via secure OAuth 2.0.
+    *   Automated synchronization and batch importation of files and directories.
+*   **Advanced Processing Pipeline**
+    *   Supports: `PDF` (with full OCR via Tesseract/EasyOCR), `DOCX`, `XLSX`, and `TXT`.
+    *   Automated extraction and indexing of ZIP and RAR archives with batch processing capabilities.
+*   **Premium UI/UX Ecosystem**
+    *   Built on Next.js 14 and React.
+    *   Modern aesthetic: Glassmorphism, Dark Mode, and Lucide iconography.
+*   **Zero-Trust Local Environment**
+    *   100% on-premise execution.
+    *   All telemetry, document data, and LLM inferences (via Ollama) remain strictly local. No exposure to external vendor APIs (OpenAI, Anthropic, etc.).
 
-### Fault Tolerance
-- **Ollama Pre-Check** -- verifies service availability and model presence before processing.
-- **Retry with Backoff** -- retries embedding generation on transient failures (3 attempts with exponential delay).
-- **Startup Health Check** -- logs Ollama status and model availability on server start.
+---
 
-### Technical Stack
-- **Backend**: Python 3.11, FastAPI, SQLAlchemy, LangChain.
-- **Vector DB**: PostgreSQL 16 with `pgvector` extension.
-- **LLM Engine**: Ollama (running locally).
-  - Embeddings: `nomic-embed-text`
-  - Chat: `mistral` (configurable)
-- **Frontend**: Next.js 14, TailwindCSS, Lucide Icons.
+## System Architecture
 
-## Quick Start
+The application is distributed across four robust microservices, seamlessly orchestrated via Docker:
+
+1.  **Frontend Module (`:3000`)**
+    *   *Tech Stack:* Next.js App Router, React, Tailwind CSS.
+    *   *Role:* Delivers the interactive upload interface, spatial cloud management (Yandex.Disk), and the real-time embedded Agent Chat client.
+2.  **Backend Core (`:8000`)**
+    *   *Tech Stack:* FastAPI (Python), LangChain, unstructured.
+    *   *Role:* Orchestrates the ingestion pipeline—parsing, advanced chunking (Semantic + Sliding Window overlay), embedding generation, vector database routing, and exposing RESTful API adapters for Flowise tool consumption.
+3.  **Flowise Orchestrator (`:3001`)**
+    *   *Role:* Visual pipeline constructor acting as the cognitive engine for the ReAct agent, maintaining stateful conversational context (BufferMemory).
+4.  **Database & Inference Layer**
+    *   `PostgreSQL + pgvector` (`:5432`): Persistent storage for document chunks and high-dimensional vector embeddings.
+    *   `Ollama` (`:11434`): Local inference engine securely hosting `qwen2.5:7b` for generation and embeddings.
+
+---
+
+## Deployment Guide
 
 ### Prerequisites
-- Docker and Docker Compose
-- 8GB+ RAM
-- NVIDIA GPU (recommended, not required)
+*   [Docker Engine](https://docs.docker.com/get-docker/) & Docker Compose.
+*   **Memory:** Minimum 16 GB RAM (32 GB highly recommended for optimal local LLM performance).
+*   **Compute:** NVIDIA GPU configured with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (Strongly recommended for GPU-accelerated Ollama inference).
 
-### 1. Installation
+### 1. Initialize Containers
 
+Clone the repository and ignite the Docker environment:
 ```bash
-git clone https://github.com/disorki/High-Precision-RAG-Chunking-Engine.git
-cd "High-Precision RAG Chunking Engine"
+git clone https://github.com/disorki/High-Precision-RAG-Chunking-Engine/tree/version-2.0
+cd high-precision-rag
+docker-compose up --build -d
 ```
 
-### 2. Run with Docker
+### 2. Provision the LLM (Ollama)
 
+Wait for initialization, then pull the target model into the local Ollama instance:
 ```bash
-docker-compose up --build
+docker exec -it rag-ollama ollama pull qwen2.5:7b
 ```
+*(Note: You may pull alternative embedding models like `mxbai-embed-large` and update the backend configuration accordingly).*
 
-Pull the LLM models on first run:
+### 3. Configure the Flowise Agent
+
+1. Access the Flowise dashboard at `http://localhost:3001` (Credentials: `admin` / `admin123`).
+2. Navigate to **Chatflows** and click **Add New**.
+3. Import the pre-configured cognitive architecture: select **Load Chatflow** and upload `flowise_chatflow.json` (located in the project root).
+4. Within the Chatflow settings, generate and copy your unique `API_KEY` and `Chatflow ID`.
+5. Inject these credentials into your `docker-compose.yml` under the `frontend` environment variables:
+   ```yaml
+   - NEXT_PUBLIC_FLOWISE_CHATFLOW_ID=your_chatflow_id
+   - FLOWISE_API_KEY=your_api_key
+   ```
+6. Apply the configuration by restarting the frontend service: `docker restart rag-frontend`
+
+### 4. Access the Platform
+Navigate to **[http://localhost:3000](http://localhost:3000)** to access the operational dashboard.
+*   **Overview Tab:** Ingest documents via local drag-and-drop or bind your Yandex.Disk for automated cloud retrieval.
+*   **Document Analysis Tabs:** Initiate deep querying and analysis with the AI Agent in the "Document" or "All documents" workspaces.
+
+---
+
+## Local Development Setup
+
+For granular debugging or contributing to the codebase without Docker encapsulation:
+
+**Backend Service:**
 ```bash
-docker exec -it rag-ollama ollama pull nomic-embed-text
-docker exec -it rag-ollama ollama pull mistral
+cd backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 3. GPU Support (NVIDIA)
-
-GPU acceleration is enabled by default in `docker-compose.yml`. If you don't have an NVIDIA GPU, comment out the `deploy` section under the `ollama` service.
-
-Requirements for GPU support:
-- NVIDIA drivers
-- Docker Desktop with WSL2 engine
-- NVIDIA Container Toolkit
-
-### 4. Access
-
-- **Frontend (Chat and Upload)**: http://localhost:3000
-- **Backend API docs**: http://localhost:8000/docs
-- **Health check**: http://localhost:8000/health
-
-## Configuration (`backend/.env`)
-
-### Core Settings
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | `postgresql://...` | Database connection |
-| `OLLAMA_BASE_URL` | `http://ollama:11434` | Internal Ollama URL |
-| `UPLOAD_DIR` | `/app/uploads` | File storage path |
-
-### RAG Tuning
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CHUNK_SIZE` | `1500` | Chunk size (larger keeps tables intact) |
-| `CHUNK_OVERLAP` | `300` | Overlap to prevent context loss at boundaries |
-| `TOP_K_CHUNKS` | `10` | Number of chunks to retrieve |
-| `SIMILARITY_THRESHOLD` | `0.3` | Min. cosine similarity (0.0--1.0) |
-| `EMBEDDING_RETRY_COUNT` | `3` | Retry attempts for embedding generation |
-| `EMBEDDING_RETRY_DELAY` | `1.0` | Base delay (seconds) for exponential backoff |
-
-### Chat Model Parameters
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CHAT_MODEL` | `mistral` | LLM model name |
-| `CHAT_TEMPERATURE` | `0.3` | Creativity (0.0 = strict, 1.0 = creative) |
-| `CHAT_NUM_CTX` | `16384` | Context window size (tokens) |
-| `CONTEXT_MAX_TOKENS` | `6000` | Max tokens for retrieved context |
-| `HISTORY_MAX_CHARS` | `3000` | Limit for past conversation history |
-
-## Usage
-
-1. **Upload** a document (PDF, DOCX, XLSX, or TXT) on the main page.
-2. **Wait** for processing -- the system extracts text, chunks it, verifies Ollama, and generates embeddings. Progress is shown in real time.
-3. **Chat** with the document:
-   - Specific: *"What is the max voltage for port A?"*
-   - General: *"List all safety warnings."*
-   - The system responds in your language with page citations `[Page 12]`.
-4. **Manage** -- documents can be deleted from the list. Failed documents show detailed error messages.
-
-## Project Structure
-
+**Frontend Client:**
+```bash
+cd frontend
+npm install
+npm run dev
 ```
-backend/
-  app/
-    routers/        # chat.py, upload.py
-    services/       # rag_pipeline.py, retrieval.py
-    workers/        # document_processor.py
-    models/         # SQLAlchemy DB models
-    config.py       # Pydantic settings
-  Dockerfile
-frontend/
-  src/
-    components/     # ChatInterface, UploadZone, DocumentList, FileViewer
-    app/            # Next.js pages
-  Dockerfile
-docker-compose.yml
-```
+
+---
 
 ## License
-MIT
+
+Distributed under the **MIT License**. See `LICENSE` for more information.

@@ -89,7 +89,7 @@ export default function UploadZone({
                             });
                             setUploadStatus({
                                 type: "success",
-                                message: `Документ обработан: ${doc.chunk_count || '?'} чанков`,
+                                message: `Документ обработан`,
                             });
                         } else if (doc.status === "failed") {
                             setProcessingDocs((prev) => prev.filter((id) => id !== docId));
@@ -101,8 +101,8 @@ export default function UploadZone({
                             setUploadStatus({
                                 type: "error",
                                 message: doc.error_message
-                                    ? `Ошибка: ${doc.error_message.slice(0, 200)}`
-                                    : "Ошибка обработки документа",
+                                    ? `Ошибка: ${doc.error_message.slice(0, 50)}...`
+                                    : "Ошибка обработки",
                             });
                         }
                     }
@@ -152,7 +152,6 @@ export default function UploadZone({
     };
 
     const handleFiles = async (files: FileList) => {
-        // Filter supported files
         const validFiles: File[] = [];
         for (let i = 0; i < files.length; i++) {
             if (isSupported(files[i].name)) {
@@ -163,7 +162,7 @@ export default function UploadZone({
         if (validFiles.length === 0) {
             setUploadStatus({
                 type: "error",
-                message: "Поддерживаемые форматы: PDF, Word, Excel, TXT, ZIP, RAR"
+                message: "Только PDF, Word, Excel, TXT, ZIP, RAR"
             });
             return;
         }
@@ -173,7 +172,6 @@ export default function UploadZone({
 
         try {
             if (validFiles.length === 1 && !isArchive(validFiles[0].name)) {
-                // Single non-archive file: use the regular single upload endpoint
                 const formData = new FormData();
                 formData.append("file", validFiles[0]);
 
@@ -202,9 +200,7 @@ export default function UploadZone({
                     ...prev,
                     [data.document_id]: { stage: "uploading", progress: 0 }
                 }));
-                setUploadStatus({ type: "success", message: "Документ загружен! Обработка..." });
             } else {
-                // Multiple files or archives: use batch endpoint
                 const formData = new FormData();
                 for (const file of validFiles) {
                     formData.append("files", file);
@@ -242,12 +238,9 @@ export default function UploadZone({
                     }
                 }
 
-                setUploadStatus({
-                    type: successCount > 0 ? "success" : "error",
-                    message: successCount > 0
-                        ? `Загружено ${successCount} файл(ов). Обработка...`
-                        : "Не удалось загрузить файлы"
-                });
+                if (successCount === 0) {
+                    setUploadStatus({ type: "error", message: "Не удалось загрузить файлы" });
+                }
             }
         } catch (error) {
             setUploadStatus({
@@ -263,105 +256,69 @@ export default function UploadZone({
     const currentStage = activeProcessing.length > 0 ? activeProcessing[0] : null;
 
     return (
-        <div className="space-y-4">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <div
                 onDragEnter={handleDragIn}
                 onDragLeave={handleDragOut}
                 onDragOver={handleDrag}
                 onDrop={handleDrop}
-                className={`upload-zone relative ${isDragging ? "dragover" : ""}`}
+                className={`upload-area ${isDragging ? "drag-over" : ""}`}
+                style={{ margin: 0, position: "relative" }}
             >
                 <input
                     type="file"
                     accept={ACCEPT_STRING}
                     onChange={handleFileInput}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                    style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", zIndex: 10 }}
                     disabled={isUploading}
                     multiple
                 />
 
-                <div className="relative z-10 flex flex-col items-center gap-4">
-                    {isUploading ? (
-                        <div className="relative">
-                            <div style={{
-                                position: 'absolute', inset: '-8px', borderRadius: '50%',
-                                background: 'rgba(99,102,241,0.22)',
-                                filter: 'blur(14px)',
-                                animation: 'pulseGlow 1.4s ease-in-out infinite'
-                            }} />
-                            <Loader2 className="relative w-10 h-10" style={{
-                                color: 'var(--accent-secondary)',
-                                animation: 'spin 0.9s linear infinite'
-                            }} />
-                        </div>
-                    ) : (
-                        <div className="upload-icon-idle" style={{
-                            width: 56, height: 56, borderRadius: 18,
-                            background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(79,70,229,0.07))',
-                            border: '1px solid rgba(99,102,241,0.22)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            boxShadow: '0 0 28px rgba(99,102,241,0.12)'
-                        }}>
-                            <Upload className="w-6 h-6" style={{ color: 'var(--accent-secondary)' }} />
-                        </div>
-                    )}
-
-                    <div className="text-center">
-                        <p className="text-[var(--text-primary)] font-medium">
-                            {isUploading ? "Загрузка..." : "Перетащите файлы сюда"}
-                        </p>
-                        <p className="text-[var(--text-tertiary)] text-sm mt-1">
-                            PDF, Word, Excel, TXT · ZIP, RAR · до 50MB
-                        </p>
-                        <div className="flex items-center justify-center gap-2 mt-2">
-                            <Archive className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
-                            <p className="text-[var(--text-tertiary)] text-xs">
-                                Можно загрузить несколько файлов или архив
-                            </p>
-                        </div>
+                {isUploading ? (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                        <Loader2 style={{ width: 24, height: 24, color: "var(--accent)", animation: "spin 1s linear infinite" }} />
+                        <h3 style={{ fontSize: 12 }}>Обработка...</h3>
                     </div>
-                </div>
+                ) : (
+                    <>
+                        <div className="upload-area-icon">
+                            <Upload style={{ width: 16, height: 16, color: "var(--accent)" }} />
+                        </div>
+                        <h3>Перетащите файлы сюда</h3>
+                        <p>PDF, DOCX, TXT, ZIP, RAR</p>
+                    </>
+                )}
             </div>
 
             {uploadStatus.type && (
-                <div className={`notification-badge ${uploadStatus.type === "success" ? "success" : "error"}`}>
-                    {uploadStatus.type === "success" ? (
-                        <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
-                    ) : (
-                        <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                    )}
-                    <span className={`text-sm ${uploadStatus.type === "success" ? "text-green-400" : "text-red-400"}`}>
-                        {uploadStatus.message}
-                    </span>
+                <div style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "8px 10px", borderRadius: 8, fontSize: 11,
+                    background: uploadStatus.type === "success" ? "var(--green-dim)" : "var(--red-dim)",
+                    color: uploadStatus.type === "success" ? "var(--green)" : "var(--red)"
+                }}>
+                    {uploadStatus.type === "success" ? <CheckCircle style={{ width: 12, height: 12 }} /> : <XCircle style={{ width: 12, height: 12 }} />}
+                    <span>{uploadStatus.message}</span>
                 </div>
             )}
 
-            {processingDocs.length > 0 && (
-                <div className="notification-badge processing">
-                    <Loader2 className="w-4 h-4 text-violet-400 animate-spin flex-shrink-0" />
-                    <div className="flex-1">
-                        <p className="text-sm text-violet-300 font-medium">
-                            {processingDocs.length > 1
-                                ? `Обработка ${processingDocs.length} документов...`
-                                : currentStage
-                                    ? stageLabels[currentStage.stage] || "Обработка..."
-                                    : "Обработка..."
-                            }
-                        </p>
-                        <div className="mt-2">
-                            <div className="progress-bar">
-                                <div
-                                    className="progress-fill"
-                                    style={{
-                                        width: `${currentStage?.progress || 5}%`,
-                                        transition: 'width 0.5s ease-in-out'
-                                    }}
-                                ></div>
-                            </div>
-                            <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                                {currentStage?.progress || 0}%
-                            </p>
-                        </div>
+            {processingDocs.length > 0 && currentStage && (
+                <div style={{
+                    padding: "8px 10px", borderRadius: 8, fontSize: 11,
+                    background: "rgba(251,191,36,0.1)", color: "var(--amber)"
+                }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                        <span style={{ fontWeight: 500 }}>
+                            {processingDocs.length > 1 ? `Обработка ${processingDocs.length} файлов...` : stageLabels[currentStage.stage] || "В работе..."}
+                        </span>
+                        <span>{currentStage.progress}%</span>
+                    </div>
+                    <div style={{ height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 10, overflow: "hidden" }}>
+                        <div style={{
+                            width: `${currentStage.progress}%`,
+                            height: "100%", background: "var(--amber)",
+                            transition: "width 0.3s ease"
+                        }} />
                     </div>
                 </div>
             )}

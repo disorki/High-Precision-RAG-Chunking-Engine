@@ -7,7 +7,7 @@ import os
 import httpx
 
 from app.database import engine, Base
-from app.routers import upload_router, chat_router, search_router, index_router, sync_router
+from app.routers import upload_router, chat_router, search_router, index_router, sync_router, agent_tools_router
 from app.config import get_settings
 
 # Configure logging
@@ -141,6 +141,7 @@ app.include_router(chat_router)
 app.include_router(search_router)
 app.include_router(index_router)
 app.include_router(sync_router)
+app.include_router(agent_tools_router)
 
 # Mount static files for uploaded PDFs (optional, for direct access)
 if os.path.exists(settings.upload_dir):
