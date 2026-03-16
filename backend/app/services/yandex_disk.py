@@ -1,7 +1,4 @@
-"""
-Yandex Disk integration service.
-Handles listing files, downloading, and sync logic via Yandex Disk REST API.
-"""
+# сервис интеграции с яндекс диском
 import json
 import logging
 import os
@@ -20,22 +17,19 @@ settings = get_settings()
 
 YANDEX_API_BASE = "https://cloud-api.yandex.net/v1/disk"
 
-# Supported file extensions
+# поддерживаемые расширения
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt"}
 
 
 class YandexDiskService:
-    """Service for interacting with Yandex Disk REST API."""
+    # работа с rest api яндекс диска
 
     def __init__(self, oauth_token: str):
         self.oauth_token = oauth_token
         self.headers = {"Authorization": f"OAuth {oauth_token}"}
 
     async def list_folder(self, folder_path: str) -> list[dict]:
-        """
-        List files in a Yandex Disk folder.
-        Returns list of {name, path, size, modified} dicts.
-        """
+        # получение списка файлов в папке
         items = []
         offset = 0
         limit = 100
@@ -54,9 +48,9 @@ class YandexDiskService:
                 )
 
                 if resp.status_code == 401:
-                    raise PermissionError("Invalid or expired OAuth token")
+                    raise PermissionError("Неверный или просроченный токен OAuth")
                 if resp.status_code == 404:
-                    raise FileNotFoundError(f"Folder not found: {folder_path}")
+                    raise FileNotFoundError(f"Папка не найдена: {folder_path}")
                 resp.raise_for_status()
 
                 data = resp.json()
@@ -83,10 +77,7 @@ class YandexDiskService:
         return items
 
     async def list_folder_full(self, folder_path: str) -> dict:
-        """
-        List folders and files in a Yandex Disk directory.
-        Returns {folders: [{name, path}], files: [{name, path, size, modified, extension}]}.
-        """
+        # получение списка папок и файлов
         folders = []
         files = []
         offset = 0
@@ -106,9 +97,9 @@ class YandexDiskService:
                 )
 
                 if resp.status_code == 401:
-                    raise PermissionError("Invalid or expired OAuth token")
+                    raise PermissionError("Неверный или просроченный токен OAuth")
                 if resp.status_code == 404:
-                    raise FileNotFoundError(f"Folder not found: {folder_path}")
+                    raise FileNotFoundError(f"Папка не найдена: {folder_path}")
                 resp.raise_for_status()
 
                 data = resp.json()
@@ -136,16 +127,15 @@ class YandexDiskService:
                 if offset >= total:
                     break
 
-        # Sort: folders first alphabetically, then files
+        # сортировка: папки, затем файлы
         folders.sort(key=lambda x: x["name"].lower())
         files.sort(key=lambda x: x["name"].lower())
 
         return {"folders": folders, "files": files}
 
     async def download_file(self, file_path: str, save_to: str) -> str:
-        """Download a file from Yandex Disk to local path."""
+        # скачивание файла локально
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            # Get download link
             resp = await client.get(
                 f"{YANDEX_API_BASE}/resources/download",
                 headers=self.headers,
@@ -154,7 +144,6 @@ class YandexDiskService:
             resp.raise_for_status()
             download_url = resp.json()["href"]
 
-            # Download the file
             resp = await client.get(download_url)
             resp.raise_for_status()
 
@@ -165,14 +154,14 @@ class YandexDiskService:
         return save_to
 
     async def check_connection(self) -> dict:
-        """Verify OAuth token and return disk info."""
+        # проверка токена
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{YANDEX_API_BASE}",
                 headers=self.headers,
             )
             if resp.status_code == 401:
-                raise PermissionError("Invalid or expired OAuth token")
+                raise PermissionError("Неверный токен OAuth")
             resp.raise_for_status()
             data = resp.json()
             return {
@@ -183,7 +172,7 @@ class YandexDiskService:
 
 
 def _build_file_hash_map(files: list[dict]) -> dict:
-    """Build a hash map from file list: {name: {size, modified}}."""
+    # построение карты хешей для списка файлов
     return {
         f["name"]: {"size": f["size"], "modified": f["modified"]}
         for f in files
@@ -193,10 +182,7 @@ def _build_file_hash_map(files: list[dict]) -> dict:
 def _compute_diff(
     remote_files: dict, local_hashes: dict
 ) -> tuple[list[str], list[str], list[str]]:
-    """
-    Compare remote files with local state.
-    Returns (new_files, changed_files, deleted_files) — lists of filenames.
-    """
+    # сравнение удаленных и локальных файлов
     remote_names = set(remote_files.keys())
     local_names = set(local_hashes.keys())
 
@@ -214,23 +200,20 @@ def _compute_diff(
 
 
 async def run_sync(source_id: int):
-    """
-    Run synchronization for a given SyncSource.
-    This is the main sync entry point called by scheduler or manual trigger.
-    """
+    # запуск синхронизации для источника
     from app.workers.document_processor import process_document_task
 
     db = SessionLocal()
     try:
         source = db.query(SyncSource).filter(SyncSource.id == source_id).first()
         if not source:
-            logger.error(f"SyncSource {source_id} not found")
+            logger.error(f"Источник {source_id} не найден")
             return
 
         token = source.oauth_token
         if not token:
             source.status = "not_connected"
-            source.error_message = "OAuth token not set — authorize first"
+            source.error_message = "Токен OAuth не установлен"
             db.commit()
             return
 
@@ -238,36 +221,31 @@ async def run_sync(source_id: int):
         source.error_message = None
         db.commit()
 
-        logger.info(f"Starting sync for source '{source.name}' (id={source_id})")
+        logger.info(f"Синхронизация источника '{source.name}' (id={source_id})")
 
         service = YandexDiskService(token)
 
-        # 1. List remote files
+        # 1. удаленные файлы
         try:
             remote_files_list = await service.list_folder(source.folder_path)
         except Exception as e:
             source.status = "error"
-            source.error_message = f"Failed to list folder: {str(e)[:500]}"
+            source.error_message = f"Ошибка списка файлов: {str(e)[:500]}"
             db.commit()
-            logger.error(f"Sync {source_id}: folder listing failed: {e}")
+            logger.error(f"Sync {source_id}: ошибка списка: {e}")
             return
 
         remote_map = _build_file_hash_map(remote_files_list)
         remote_path_map = {f["name"]: f["path"] for f in remote_files_list}
 
-        # 2. Load local state
+        # 2. локальное состояние
         local_hashes = json.loads(source.file_hashes) if source.file_hashes else {}
         synced_docs = json.loads(source.synced_doc_ids) if source.synced_doc_ids else {}
 
-        # 3. Compute diff
+        # 3. разница
         new_files, changed_files, deleted_files = _compute_diff(remote_map, local_hashes)
 
-        logger.info(
-            f"Sync {source_id}: {len(new_files)} new, "
-            f"{len(changed_files)} changed, {len(deleted_files)} deleted"
-        )
-
-        # 4. Delete removed files
+        # 4. удаление удаленных
         for filename in deleted_files:
             doc_id = synced_docs.get(filename)
             if doc_id:
@@ -276,13 +254,13 @@ async def run_sync(source_id: int):
             if filename in local_hashes:
                 del local_hashes[filename]
 
-        # 5. Handle changed files (delete old + re-download)
+        # 5. подготовка измененных
         for filename in changed_files:
             doc_id = synced_docs.get(filename)
             if doc_id:
                 await _delete_document(db, doc_id)
 
-        # 6. Download new + changed files
+        # 6. скачивание
         files_to_download = new_files + changed_files
         for filename in files_to_download:
             disk_path = remote_path_map.get(filename)
@@ -290,16 +268,15 @@ async def run_sync(source_id: int):
                 continue
 
             try:
-                # Generate unique local path
                 import uuid
                 unique_name = f"{uuid.uuid4().hex}_{filename}"
                 local_path = os.path.join(settings.upload_dir, unique_name)
 
                 await service.download_file(disk_path, local_path)
 
-                # Create document record
+                # запись документа
                 doc = Document(
-                    user_id=1,  # Default user
+                    user_id=1,
                     filename=unique_name,
                     original_filename=filename,
                     file_path=local_path,
@@ -314,25 +291,22 @@ async def run_sync(source_id: int):
                 synced_docs[filename] = doc.id
                 local_hashes[filename] = remote_map[filename]
 
-                # Process document (runs async)
+                # обработка
                 try:
                     await process_document_task(doc.id, local_path, db)
                 except Exception as e:
-                    logger.error(f"Sync {source_id}: processing {filename} failed: {e}")
-                    # Document status is already set to FAILED by process_document_task
+                    logger.error(f"Sync {source_id}: ошибка обработки {filename}: {e}")
 
             except Exception as e:
-                logger.error(f"Sync {source_id}: failed to download {filename}: {e}")
+                logger.error(f"Sync {source_id}: ошибка скачивания {filename}: {e}")
 
-        # 7. Update source state
+        # 7. обновление состояния
         source.file_hashes = json.dumps(local_hashes)
         source.synced_doc_ids = json.dumps(synced_docs)
         source.last_synced_at = datetime.utcnow()
         source.status = "idle"
         source.error_message = None
         db.commit()
-
-        logger.info(f"Sync {source_id} completed: {len(files_to_download)} processed")
 
     except Exception as e:
         logger.error(f"Sync {source_id} failed: {e}")
@@ -349,7 +323,7 @@ async def run_sync(source_id: int):
 
 
 async def _delete_document(db: Session, doc_id: int):
-    """Delete a document and all related data."""
+    # удаление документа и данных
     from sqlalchemy import text
 
     try:
@@ -374,4 +348,4 @@ async def _delete_document(db: Session, doc_id: int):
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to delete document {doc_id}: {e}")
+        logger.error(f"Ошибка удаления документа {doc_id}: {e}")

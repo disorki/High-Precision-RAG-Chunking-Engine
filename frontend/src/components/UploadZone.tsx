@@ -3,6 +3,9 @@
 import { useCallback, useState, useEffect } from "react";
 import { Upload, CheckCircle, XCircle, Loader2, Archive } from "lucide-react";
 
+// прямой вызов бэкенда, минуя Next.js proxy
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 interface Document {
     id: number;
     filename: string;
@@ -181,8 +184,9 @@ export default function UploadZone({
                 });
 
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || "Upload failed");
+                    let detail = `Upload failed (${response.status})`;
+                    try { const err = await response.json(); detail = err.detail || detail; } catch { detail = await response.text().catch(() => detail); }
+                    throw new Error(detail);
                 }
 
                 const data = await response.json();
@@ -212,8 +216,9 @@ export default function UploadZone({
                 });
 
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || "Batch upload failed");
+                    let detail = `Batch upload failed (${response.status})`;
+                    try { const err = await response.json(); detail = err.detail || detail; } catch { detail = await response.text().catch(() => detail); }
+                    throw new Error(detail);
                 }
 
                 const data = await response.json();

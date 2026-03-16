@@ -4,56 +4,56 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    # настройки приложения из .env
     
-    # Database
+    # база данных
     database_url: str = "postgresql://postgres:postgres@localhost:5432/ragdb"
     
-    # Ollama
+    # ollama
     ollama_base_url: str = "http://localhost:11434"
     
-    # Upload settings
+    # загрузки
     upload_dir: str = "./uploads"
-    max_file_size: int = 50 * 1024 * 1024  # 50MB
+    max_file_size: int = 50 * 1024 * 1024  # 50мб
     
-    # RAG settings
+    # настройки rag
     embedding_model: str = "nomic-embed-text"
     chat_model: str = "qwen2.5:7b"
-    chunk_size: int = 1500  # Larger chunks for tables
-    chunk_overlap: int = 300  # More overlap to avoid splitting tables
-    top_k_chunks: int = 10  # Retrieve more chunks for better context
-    vector_dimensions: int = 768  # nomic-embed-text dimension
+    chunk_size: int = 1500  # размер чанка (увеличено для таблиц)
+    chunk_overlap: int = 300  # перекрытие
+    top_k_chunks: int = 20  # количество чанков для контекста
+    vector_dimensions: int = 768  # размерность nomic
     
-    # Chat model parameters (tunable via .env)
-    chat_temperature: float = 0.3
+    # параметры чата
+    chat_temperature: float = 0.15
     chat_num_ctx: int = 16384
     chat_top_k: int = 50
     chat_top_p: float = 0.9
-    similarity_threshold: float = 0.3  # Minimum cosine similarity to include chunk
-    context_max_tokens: int = 6000  # Max tokens for context window
-    history_max_chars: int = 3000  # Max chars for chat history
+    similarity_threshold: float = 0.05  # порог сходства
+    context_max_tokens: int = 16000  # лимит токенов контекста
+    history_max_chars: int = 3000  # лимит истории чата
     
-    # Advanced Retrieval Features
-    enable_context_headers: bool = True  # LLM generates "context headers" for chunks
-    embedding_concurrency: int = 5       # Max parallel embedding requests
-    embedding_cache_size: int = 1000     # LRU cache size for embeddings
-    enable_reranker: bool = True         # Use cross-encoder for reranking results
+    # продвинутый поиск
+    enable_context_headers: bool = True  # заголовки контекста для llm
+    embedding_concurrency: int = 5       # параллельные запросы эмбеддингов
+    embedding_cache_size: int = 1000     # размер кэша эмбеддингов
+    enable_reranker: bool = False         # реранкер (отключен для скорости)
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    reranker_top_k: int = 5              # Items to keep after reranking
+    reranker_top_k: int = 12              # топ после реранкинга
 
-    # Agent settings
-    agent_model: str = "qwen2.5:7b"      # Model used by Flowise agent tools
-    agent_max_iterations: int = 8         # Max ReAct reasoning iterations
-    agent_summarize_chunks: int = 5       # Chunks used for document summarization
+    # настройки агента
+    agent_model: str = "qwen2.5:14b"      # модель агента
+    agent_max_iterations: int = 8         # макс итераций react
+    agent_summarize_chunks: int = 5       # чанков для саммари
 
-    # Retry settings
+    # повторы запросов
     embedding_retry_count: int = 3
-    embedding_retry_delay: float = 1.0  # Base delay in seconds (exponential backoff)
+    embedding_retry_delay: float = 1.0
     
-    # Yandex Disk Integration (OAuth)
-    yandex_client_id: str = ""  # OAuth app Client ID
-    yandex_client_secret: str = ""  # OAuth app Client Secret
-    sync_default_interval: int = 30  # Default sync interval in minutes
+    # яндекс диск (oauth)
+    yandex_client_id: str = ""  # id клиента
+    yandex_client_secret: str = ""  # секрет
+    sync_default_interval: int = 30  # интервал синхронизации (мин)
     
     class Config:
         env_file = ".env"
@@ -63,5 +63,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance."""
+    # кэшированный экземпляр настроек
     return Settings()

@@ -7,10 +7,10 @@ import os
 import httpx
 
 from app.database import engine, Base
-from app.routers import upload_router, chat_router, search_router, index_router, sync_router, agent_tools_router
+from app.routers import upload_router, chat_router, search_router, index_router, sync_router, agent_chat_router
 from app.config import get_settings
 
-# Configure logging
+# логирование
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -21,7 +21,7 @@ settings = get_settings()
 
 
 def run_migrations():
-    """Run Alembic migrations + ensure all model tables exist."""
+    # запуск миграций alembic
     try:
         from alembic.config import Config
         from alembic import command
@@ -32,17 +32,9 @@ def run_migrations():
     except Exception as e:
         logger.warning(f"Alembic migration failed: {e}")
 
-    # Always run create_all as a safety net — this creates any tables
-    # defined in models that don't yet exist in the database
-    try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database tables verified via create_all")
-    except Exception as e:
-        logger.error(f"Failed to create tables: {e}")
-
 
 async def check_ollama_on_startup():
-    """Check Ollama connectivity and model availability on startup (non-blocking)."""
+    # проверка связи с ollama при запуске
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{settings.ollama_base_url}/api/version")
@@ -54,12 +46,11 @@ async def check_ollama_on_startup():
                 return
     except Exception as e:
         logger.warning(
-            f"Ollama is not reachable at {settings.ollama_base_url}: {e}. "
-            f"Document processing will fail until Ollama is available."
+            f"Ollama is not reachable at {settings.ollama_base_url}: {e}"
         )
         return
 
-    # Check models
+    # проверка доступности моделей
     for model_name in [settings.embedding_model, settings.chat_model]:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -71,8 +62,7 @@ async def check_ollama_on_startup():
                     logger.info(f"Model '{model_name}' is available")
                 else:
                     logger.warning(
-                        f"Model '{model_name}' not found. "
-                        f"Pull it: ollama pull {model_name}"
+                        f"Model '{model_name}' not found"
                     )
         except Exception as e:
             logger.warning(f"⚠️ Could not check model '{model_name}': {e}")
@@ -80,21 +70,20 @@ async def check_ollama_on_startup():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan handler."""
-    # Startup
+    # управление жизненным циклом приложения
     logger.info("Starting RAG API server...")
     
-    # Run database migrations
+    # запуск миграций бд
     run_migrations()
     
-    # Ensure upload directory exists
+    # создание папки для загрузок
     os.makedirs(settings.upload_dir, exist_ok=True)
     logger.info(f"Upload directory: {settings.upload_dir}")
     
-    # Check Ollama (non-blocking, just logs warnings)
+    # проверка ollama
     await check_ollama_on_startup()
     
-    # Start sync scheduler
+    # запуск планировщика синхронизации
     try:
         from app.workers.sync_scheduler import init_scheduler, register_all_sources, stop_scheduler
         init_scheduler()
@@ -104,7 +93,7 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Shutdown
+    # остановка сервисов при выключении
     try:
         from app.workers.sync_scheduler import stop_scheduler
         stop_scheduler()
@@ -113,7 +102,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down RAG API server...")
 
 
-# Create FastAPI app
+# инициализация fastapi
 app = FastAPI(
     title="Intelligent RAG System",
     description="AI-powered Knowledge Base with PDF upload and chat",
@@ -121,7 +110,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configure CORS
+# настройка cors
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -135,22 +124,22 @@ app.add_middleware(
     expose_headers=["X-Session-Id", "X-Sources"]
 )
 
-# Include routers
+# подключение роутеров
 app.include_router(upload_router)
 app.include_router(chat_router)
 app.include_router(search_router)
 app.include_router(index_router)
 app.include_router(sync_router)
-app.include_router(agent_tools_router)
+app.include_router(agent_chat_router)
 
-# Mount static files for uploaded PDFs (optional, for direct access)
+# статика для pdf
 if os.path.exists(settings.upload_dir):
     app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
 
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
+    # корневой эндпоинт
     return {
         "name": "Intelligent RAG System API",
         "version": "1.0.0",
@@ -160,8 +149,7 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    # Check Ollama connectivity
+    # проверка состояния систем
     ollama_status = "unknown"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:

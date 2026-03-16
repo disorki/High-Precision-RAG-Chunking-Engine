@@ -69,7 +69,7 @@ export default function FileViewer({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
             <div className="relative w-full max-w-4xl h-[90vh] bg-dark-900 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
                 style={{ backgroundColor: 'var(--bg-primary, #0a0a0f)' }}>
-                {/* Header */}
+                {/* заголовок */}
                 <div className="flex items-center justify-between p-4 border-b border-dark-700"
                     style={{ borderColor: 'var(--border-subtle, rgba(255,255,255,0.06))' }}>
                     <div className="flex items-center gap-3 min-w-0">
@@ -114,7 +114,7 @@ export default function FileViewer({
                     </div>
                 </div>
 
-                {/* Content */}
+                {/* содержимое */}
                 <div className="flex-1 overflow-auto flex items-center justify-center"
                     style={{ backgroundColor: 'rgba(0,0,0,0.3)' }}>
 
@@ -146,7 +146,7 @@ export default function FileViewer({
                     )}
 
                     {isPdf ? (
-                        /* PDF — render in iframe */
+                        /* PDF — просмотр в iframe */
                         <iframe
                             src={fileUrl}
                             className="w-full h-full border-0"
@@ -155,7 +155,7 @@ export default function FileViewer({
                             title={filename}
                         />
                     ) : isTxt ? (
-                        /* TXT — render in iframe */
+                        /* TXT — просмотр в iframe */
                         <iframe
                             src={fileUrl}
                             className="w-full h-full border-0"
@@ -165,7 +165,7 @@ export default function FileViewer({
                             title={filename}
                         />
                     ) : (
-                        /* DOCX/XLSX — show download prompt with icon */
+                        /* DOCX/XLSX — сообщение о скачивании */
                         !error && (
                             <div className="flex flex-col items-center justify-center py-16 px-8 text-center"
                                 onLoad={() => setIsLoading(false)}
@@ -201,7 +201,7 @@ export default function FileViewer({
                 </div>
             </div>
 
-            {/* Click outside to close */}
+            {/* закрытие при клике снаружи */}
             <div
                 className="absolute inset-0 -z-10"
                 onClick={onClose}

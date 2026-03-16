@@ -24,7 +24,7 @@ import {
     Check,
 } from "lucide-react";
 
-// (Keep all the interfaces and logic exactly the same)
+// интерфейсы и логика
 interface SyncSource {
     id: number;
     name: string;
@@ -189,7 +189,7 @@ export default function SyncSourcePanel({ onDocumentUploaded, existingDocuments 
 
     return (
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
-            {/* Header */}
+            {/* заголовок */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Cloud style={{ width: 15, height: 15, color: "var(--amber)" }} />
@@ -209,7 +209,7 @@ export default function SyncSourcePanel({ onDocumentUploaded, existingDocuments 
                     </div>
                 )}
 
-                {/* AUTH STEP */}
+                {/* этап авторизации */}
                 {step === "auth" && (
                     <div style={{ padding: 12, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10 }}>
                         <p style={{ fontSize: 12, fontWeight: 500, marginBottom: 10 }}>Подключение Яндекс.Диска</p>
@@ -231,7 +231,7 @@ export default function SyncSourcePanel({ onDocumentUploaded, existingDocuments 
                     </div>
                 )}
 
-                {/* FORM STEP */}
+                {/* этап настройки */}
                 {step === "form" && (
                     <div style={{ padding: 12, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", gap: 8 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--green)", fontSize: 11 }}><CheckCircle2 style={{ width: 12, height: 12 }} /> {authUser}</div>
@@ -248,7 +248,7 @@ export default function SyncSourcePanel({ onDocumentUploaded, existingDocuments 
                     </div>
                 )}
 
-                {/* LIST */}
+                {/* список */}
                 {step === "idle" && sources.length === 0 && apiOk && (
                     <div style={{ textAlign: "center", padding: "20px 0" }}>
                         <p style={{ fontSize: 11, color: "var(--text-3)" }}>Нет подключений</p>
@@ -292,7 +292,7 @@ export default function SyncSourcePanel({ onDocumentUploaded, existingDocuments 
                             </div>
                         </div>
 
-                        {/* RECONNECT PANEL */}
+                        {/* панель переподключения */}
                         {reconnectId === s.id && !s.is_connected && (
                             <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
                                 <a href={authUrl || "#"} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--accent)" }}>Войти в Яндекс</a>
@@ -306,10 +306,10 @@ export default function SyncSourcePanel({ onDocumentUploaded, existingDocuments 
                             </div>
                         )}
 
-                        {/* BROWSER */}
+                        {/* проводник файлов */}
                         {browseSourceId === s.id && s.is_connected && (
                             <div style={{ marginTop: 8, border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
-                                {/* Breadcrumbs */}
+                                {/* хлебные крошки */}
                                 <div style={{ padding: "6px 8px", background: "var(--bg-card)", display: "flex", gap: 4, borderBottom: "1px solid var(--border)", fontSize: 10, overflowX: "auto" }}>
                                     {browsePath !== "/" && <button onClick={() => navigateUp(s)} style={{ border: "none", background: "none", color: "var(--text-3)", cursor: "pointer" }}><ArrowLeft style={{ width: 10, height: 10 }} /></button>}
                                     {getBreadcrumbs(browsePath).map((c, i, arr) => (
@@ -319,7 +319,7 @@ export default function SyncSourcePanel({ onDocumentUploaded, existingDocuments 
                                         </React.Fragment>
                                     ))}
                                 </div>
-                                {/* Explorer */}
+                                {/* список файлов */}
                                 <div style={{ maxHeight: 200, overflowY: "auto" }}>
                                     {browseLoading ? <div style={{ padding: 20, textAlign: "center" }}><Loader2 className="animate-spin mx-auto" style={{ width: 16, height: 16, color: "var(--accent)" }} /></div>
                                         : (
@@ -347,7 +347,7 @@ export default function SyncSourcePanel({ onDocumentUploaded, existingDocuments 
                                             </>
                                         )}
                                 </div>
-                                {/* Footer */}
+                                {/* нижняя панель */}
                                 {browseFiles.length > 0 && !browseLoading && (
                                     <div style={{ padding: "6px 10px", borderTop: "1px solid var(--border)", background: "var(--bg-card)", display: "flex", justifyContent: "space-between" }}>
                                         <button onClick={selectAll} style={{ background: "none", border: "none", fontSize: 10, color: "var(--text-3)", cursor: "pointer" }}>Выбрать все</button>

@@ -27,7 +27,6 @@ function TypingDots() {
 
 export default function AgentChat({ document, sessionKey }: Props) {
     const isDoc = Boolean(document);
-    const configured = Boolean(process.env.NEXT_PUBLIC_FLOWISE_CHATFLOW_ID);
     const sessionId = useRef(`s-${Math.random().toString(36).slice(2, 9)}`);
 
     const welcomeText = isDoc
@@ -42,7 +41,7 @@ export default function AgentChat({ document, sessionKey }: Props) {
     const bottomRef = useRef<HTMLDivElement>(null);
     const textRef = useRef<HTMLTextAreaElement>(null);
 
-    // Reset on context change
+    // сброс при смене контекста
     useEffect(() => {
         setMounted(true);
         const welcome: Message = {
@@ -65,20 +64,21 @@ export default function AgentChat({ document, sessionKey }: Props) {
         const q = input.trim();
         if (!q || thinking) return;
 
-        const questionSent = isDoc && document
-            ? `[Работай ТОЛЬКО с документом ID=${document.id} («${document.name}»)]\n${q}`
-            : q;
-
         setMsgs(p => [...p, { id: crypto.randomUUID(), role: "user", text: q, ts: new Date() }]);
         setInput("");
         setThinking(true);
         setErr(null);
 
         try {
-            const r = await fetch("/api/agent", {
+            const r = await fetch("/agent-endpoint", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ question: questionSent, sessionId: sessionId.current }),
+                body: JSON.stringify({
+                    question: q,
+                    sessionId: sessionId.current,
+                    documentId: document?.id ?? null,
+                    documentName: document?.name ?? null,
+                }),
             });
             const d = await r.json();
             if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
@@ -89,7 +89,7 @@ export default function AgentChat({ document, sessionKey }: Props) {
             setThinking(false);
             setTimeout(() => textRef.current?.focus(), 60);
         }
-    }, [input, thinking, document, isDoc]);
+    }, [input, thinking, document]);
 
     const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -108,23 +108,12 @@ export default function AgentChat({ document, sessionKey }: Props) {
         setErr(null);
     };
 
-    if (!configured) {
-        return (
-            <div className="welcome-screen">
-                <div className="welcome-icon">
-                    <Bot style={{ width: 28, height: 28, color: "var(--accent)" }} />
-                </div>
-                <h2>Агент не настроен</h2>
-                <p>Добавьте <code>NEXT_PUBLIC_FLOWISE_CHATFLOW_ID</code> в docker-compose.yml</p>
-            </div>
-        );
-    }
 
     const fmt = (d: Date) => d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
 
     return (
         <div className="chat-layout">
-            {/* Context bar */}
+            {/* панель контекста */}
             <div className="chat-context-bar">
                 {isDoc
                     ? <><FileText style={{ width: 13, height: 13 }} /><span>Режим: </span><span className="chat-context-name">{document?.name}</span></>
@@ -135,7 +124,7 @@ export default function AgentChat({ document, sessionKey }: Props) {
                 </button>
             </div>
 
-            {/* Messages */}
+            {/* сообщения */}
             <div className="chat-messages">
                 {mounted && msgs.map(msg => (
                     <div key={msg.id} className={`msg-row ${msg.role === "user" ? "user" : "bot"} animate-fade-up`}>
@@ -170,7 +159,7 @@ export default function AgentChat({ document, sessionKey }: Props) {
                 <div ref={bottomRef} />
             </div>
 
-            {/* Error */}
+            {/* ошибка */}
             {err && (
                 <div className="error-bar">
                     <AlertCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
@@ -178,7 +167,7 @@ export default function AgentChat({ document, sessionKey }: Props) {
                 </div>
             )}
 
-            {/* Input */}
+            {/* ввод */}
             <div className="chat-input-bar">
                 <div className="chat-input-wrap">
                     <textarea

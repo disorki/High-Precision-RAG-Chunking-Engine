@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class RetrievalService:
-    """Service for vector similarity search and context retrieval."""
+    # сервис поиска и извлечения контекста
 
     def __init__(self):
         self.top_k = settings.top_k_chunks
@@ -27,25 +27,15 @@ class RetrievalService:
         query_text: Optional[str] = None,
         top_k: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Search for similar chunks using cosine similarity.
-        
-        Uses pgvector's <=> operator for cosine distance.
-        Lower distance = more similar.
-        Filters out chunks below similarity_threshold.
-        
-        Returns:
-            List of dicts with chunk info and similarity score
-        """
+        # поиск похожих чанков по косинусному сходству
         k = top_k or self.top_k
         fetch_k = k * 3 if reranker_service.enabled else k
         
         try:
-            # Convert embedding list to pgvector string format: [1.2, 3.4, ...]
+            # конвертация эмбеддинга в строку для pgvector
             embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
             
-            # Using cosine distance operator `<=>` (0 = identical, 2 = completely opposite)
-            # We want similarity = 1 - distance
+            # использование оператора <=> для косинусного расстояния
             query_str = """
                 SELECT 
                     dc.id,
@@ -68,13 +58,14 @@ class RetrievalService:
             filtered_count = 0
             for row in result:
                 similarity = float(row.similarity)
-                # Filter out chunks below similarity threshold
+                # фильтрация по порогу
                 if similarity < self.similarity_threshold:
                     filtered_count += 1
                     continue
                 chunks.append({
                     "id": row.id,
                     "document_id": row.document_id,
+                    "document_filename": row.original_filename,
                     "text": row.text_content,
                     "page_number": row.page_number,
                     "chunk_index": row.chunk_index,
@@ -82,19 +73,19 @@ class RetrievalService:
                 })
             
             if filtered_count > 0:
-                logger.info(f"Filtered out {filtered_count} chunks below threshold {self.similarity_threshold}")
+                logger.info(f"Отфильтровано {filtered_count} чанков ниже порога {self.similarity_threshold}")
             
-            # Rerank if enabled and query text is provided
+            # реранжирование
             if reranker_service.enabled and query_text and len(chunks) > 0:
                 chunks = reranker_service.rerank(query=query_text, chunks=chunks)
             else:
                 chunks = chunks[:k]
                 
-            logger.info(f"Found {len(chunks)} relevant chunks for document {document_id}")
+            logger.info(f"Найдено {len(chunks)} чанков для документа {document_id}")
             return chunks
             
         except Exception as e:
-            logger.error(f"Error searching similar chunks: {e}")
+            logger.error(f"Ошибка поиска чанков: {e}")
             raise
 
     def search_all_documents(
@@ -105,16 +96,14 @@ class RetrievalService:
         top_k: Optional[int] = None,
         document_id: Optional[int] = None
     ) -> List[dict]:
-        """
-        Search for similar chunks across ALL documents (or filter by one if provided).
-        """
+        # поиск по всем готовым документам
         k = top_k or self.top_k
         fetch_k = k * 3 if reranker_service.enabled else k
         
         try:
             embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
             
-            # Base query
+            # базовый запрос
             query_str = """
                 SELECT 
                     dc.id,
@@ -144,7 +133,7 @@ class RetrievalService:
             chunks = []
             for row in result:
                 similarity = float(row.similarity)
-                # Keep slightly more relaxed threshold for global search to ensure results
+                # более мягкий порог для глобального поиска
                 if similarity < self.similarity_threshold - 0.05:
                     continue
                 chunks.append({
@@ -157,66 +146,65 @@ class RetrievalService:
                     "score": similarity
                 })
             
-            # Rerank if enabled and query text is provided
+            # реранжирование
             if reranker_service.enabled and query_text and len(chunks) > 0:
                 chunks = reranker_service.rerank(query=query_text, chunks=chunks)
             else:
                 chunks = chunks[:k]
                 
-            logger.info(f"Global search found {len(chunks)} relevant chunks")
+            logger.info(f"Глобальный поиск: найдено {len(chunks)} чанков")
             return chunks
             
         except Exception as e:
-            logger.error(f"Error in global search: {e}")
+            logger.error(f"Ошибка глобального поиска: {e}")
             raise
 
     def build_context(self, chunks: List[dict], max_tokens: Optional[int] = None) -> str:
-        """
-        Build context string from retrieved chunks.
-        
-        Sorts by document position (page, chunk_index) for natural reading order.
-        Only includes chunks that passed the similarity threshold.
-        """
+        # сборка строки контекста из найденных чанков
         if not chunks:
             return ""
         
         max_tokens = max_tokens or settings.context_max_tokens
         
-        # Sort by document position for natural reading order
+        # сортировка для естественного чтения
         sorted_chunks = sorted(
             chunks,
-            key=lambda x: (x.get("page_number", 0), x.get("chunk_index", 0))
+            key=lambda x: (
+                x.get("document_filename", ""),
+                x.get("page_number", 0),
+                x.get("chunk_index", 0),
+            )
         )
         
         context_parts = []
         total_chars = 0
-        char_limit = max_tokens * 4  # Rough approximation of tokens to chars
+        char_limit = max_tokens * 4
         
         for i, chunk in enumerate(sorted_chunks):
             chunk_text = chunk["text"]
             page_num = chunk.get("page_number", "?")
             score = chunk.get("score", 0)
+            doc_name = chunk.get("document_filename", "")
             
-            # Log each chunk for debugging
-            logger.debug(f"Chunk {i+1}: page={page_num}, score={score:.4f}, len={len(chunk_text)}")
-            logger.debug(f"Content preview: {chunk_text[:200]}...")
+            logger.debug(f"Чанк {i+1}: док={doc_name}, стр={page_num}, score={score:.4f}")
             
             if total_chars + len(chunk_text) > char_limit:
-                # Add partial chunk if possible
+                # обрезка при превышении лимита
                 remaining = char_limit - total_chars
                 if remaining > 200:
-                    context_parts.append(f"[Page {page_num} | score={score:.2f}]\n{chunk_text[:remaining]}...")
+                    header = f"[Документ: {doc_name} | Стр. {page_num}]" if doc_name else f"[Стр. {page_num}]"
+                    context_parts.append(f"{header}\n{chunk_text[:remaining]}...")
                 break
             
-            # Add page reference and score to each chunk
-            context_parts.append(f"[Page {page_num} | score={score:.2f}]\n{chunk_text}")
+            header = f"[Документ: {doc_name} | Стр. {page_num}]" if doc_name else f"[Стр. {page_num}]"
+            context_parts.append(f"{header}\n{chunk_text}")
             total_chars += len(chunk_text)
         
-        logger.info(f"Built context with {len(context_parts)} chunks, {total_chars} chars")
+        logger.info(f"Контекст собран: {len(context_parts)} чанков, {total_chars} симв.")
         return "\n\n---\n\n".join(context_parts)
 
     def format_sources(self, chunks: List[dict]) -> List[dict]:
-        """Format chunks as source citations."""
+        # форматирование источников для ответа
         return [
             {
                 "chunk_id": chunk["id"],
@@ -228,5 +216,5 @@ class RetrievalService:
         ]
 
 
-# Singleton instance
+# синглтон сервиса
 retrieval_service = RetrievalService()

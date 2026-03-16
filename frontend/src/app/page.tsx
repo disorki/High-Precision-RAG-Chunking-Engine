@@ -34,7 +34,7 @@ export default function Home() {
     const [showUpload, setShowUpload] = useState(false);
     const [showSync, setShowSync] = useState(false);
 
-    // Load documents
+    // загрузка документов
     useEffect(() => {
         const load = async () => {
             try {
@@ -50,7 +50,7 @@ export default function Home() {
         load();
     }, []);
 
-    // Poll processing docs
+    // опрос статуса обработки
     useEffect(() => {
         const proc = documents.filter(d => d.status === "processing");
         if (!proc.length) return;
@@ -100,9 +100,9 @@ export default function Home() {
 
     return (
         <div className="app-shell">
-            {/* ═══ SIDEBAR ═══ */}
+            {/* ═══ БОКОВАЯ ПАНЕЛЬ ═══ */}
             <aside className="sidebar">
-                {/* Logo */}
+                {/* логотип */}
                 <div className="sidebar-logo">
                     <div className="sidebar-logo-mark">
                         <Database style={{ width: 16, height: 16, color: "#fff" }} />
@@ -113,7 +113,7 @@ export default function Home() {
                     </div>
                 </div>
 
-                {/* Upload button */}
+                {/* кнопка загрузки */}
                 <div style={{ padding: "12px 14px 0" }}>
                     <button
                         onClick={() => setShowUpload(v => !v)}
@@ -138,7 +138,7 @@ export default function Home() {
                     )}
                 </div>
 
-                {/* Documents list */}
+                {/* список документов */}
                 <div className="sidebar-section" style={{ marginTop: 14 }}>
                     <div className="sidebar-section-header">
                         <span className="sidebar-section-title">Документы</span>
@@ -203,7 +203,7 @@ export default function Home() {
                     ))}
                 </div>
 
-                {/* Sync at bottom */}
+                {/* синхронизация внизу */}
                 <div className="sidebar-bottom">
                     <div className="sync-row" onClick={() => setShowSync(v => !v)}>
                         <RefreshCw style={{ width: 14, height: 14 }} />
@@ -218,9 +218,9 @@ export default function Home() {
                 </div>
             </aside>
 
-            {/* ═══ MAIN PANEL ═══ */}
+            {/* ═══ ОСНОВНАЯ ПАНЕЛЬ ═══ */}
             <main className="main-panel">
-                {/* Top bar */}
+                {/* верхняя панель */}
                 <div className="topbar">
                     <button
                         className={`tab-btn ${chatMode === "document" ? "active" : ""}`}
@@ -247,7 +247,7 @@ export default function Home() {
                     </div>
                 </div>
 
-                {/* Chat content */}
+                {/* чат */}
                 <div className="content-area">
                     {chatMode === "document" && !selectedDoc ? (
                         <div className="welcome-screen">
@@ -268,7 +268,7 @@ export default function Home() {
                 </div>
             </main>
 
-            {/* PDF viewer */}
+            {/* просмотр pdf */}
             {showPdf && selectedDoc && (
                 <FileViewer
                     documentId={selectedDoc.id}

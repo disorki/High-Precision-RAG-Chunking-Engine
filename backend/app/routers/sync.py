@@ -1,9 +1,4 @@
-"""
-API router for Yandex Disk sync sources management with OAuth flow.
-
-Uses the "verification_code" redirect — user enters code from Yandex page.
-Flow: auth first (exchange code → get token), then create source with token.
-"""
+# роутер для управления синхронизацией с яндекс диском (oauth)
 import logging
 import os
 import uuid
@@ -28,9 +23,9 @@ YANDEX_TOKEN_URL = "https://oauth.yandex.ru/token"
 
 @router.get("/yandex/auth-url")
 async def get_auth_url():
-    """Generate Yandex OAuth URL."""
+    # получение url для авторизации в яндексе
     if not settings.yandex_client_id:
-        raise HTTPException(status_code=400, detail="YANDEX_CLIENT_ID not configured")
+        raise HTTPException(status_code=400, detail="YANDEX_CLIENT_ID не настроен")
 
     url = (
         f"{YANDEX_AUTH_URL}"
@@ -45,18 +40,14 @@ async def exchange_code(
     data: dict,
     db: Session = Depends(get_db),
 ):
-    """
-    Exchange authorization code for token.
-    If source_id is provided, saves token to that source.
-    If not, just returns the token and user info (for auth-first flow).
-    """
+    # обмен кода на токен
     code = data.get("code", "").strip()
     source_id = data.get("source_id", 0)
 
     if not code:
-        raise HTTPException(status_code=400, detail="Code is required")
+        raise HTTPException(status_code=400, detail="Код обязателен")
 
-    # Exchange code for token
+    # обмен кода через api яндекса
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
@@ -70,19 +61,19 @@ async def exchange_code(
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Yandex API error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Ошибка API Яндекса: {str(e)}")
 
     if resp.status_code != 200:
         err = resp.json()
         detail = err.get("error_description", err.get("error", resp.text))
-        raise HTTPException(status_code=400, detail=f"Token error: {detail}")
+        raise HTTPException(status_code=400, detail=f"Ошибка токена: {detail}")
 
     token_data = resp.json()
     access_token = token_data.get("access_token", "")
     if not access_token:
-        raise HTTPException(status_code=400, detail="No access_token in response")
+        raise HTTPException(status_code=400, detail="Токен отсутствует в ответе")
 
-    # Get Yandex user info
+    # получение инфо о пользователе
     user_name = "Пользователь"
     try:
         from app.services.yandex_disk import YandexDiskService
@@ -92,7 +83,7 @@ async def exchange_code(
     except Exception:
         pass
 
-    # If source_id provided, save token to existing source
+    # сохранение токена в существующий источник
     if source_id:
         source = db.query(SyncSource).filter(SyncSource.id == source_id).first()
         if source:
@@ -102,7 +93,7 @@ async def exchange_code(
             source.error_message = None
             db.commit()
             _register_in_scheduler(source)
-            logger.info(f"OAuth connected for source {source_id}: user={user_name}")
+            logger.info(f"OAuth подключен для источника {source_id}: user={user_name}")
             return {
                 "success": True,
                 "user": user_name,
@@ -110,8 +101,7 @@ async def exchange_code(
                 "source": _source_to_dict(source),
             }
 
-    # No source_id — just return token (auth-first flow)
-    logger.info(f"OAuth token obtained for user={user_name}")
+    logger.info(f"Получен OAuth токен для user={user_name}")
     return {
         "success": True,
         "user": user_name,
@@ -123,12 +113,12 @@ async def exchange_code(
 
 @router.post("/yandex/browse")
 async def browse_yandex_disk(data: dict):
-    """Browse files and folders on Yandex Disk at a given path."""
+    # просмотр файлов и папок на диске
     token = data.get("token", "").strip()
     path = data.get("path", "/").strip() or "/"
 
     if not token:
-        raise HTTPException(status_code=400, detail="Token is required")
+        raise HTTPException(status_code=400, detail="Токен обязателен")
 
     try:
         from app.services.yandex_disk import YandexDiskService
@@ -136,9 +126,9 @@ async def browse_yandex_disk(data: dict):
         result = await svc.list_folder_full(path)
         return {"path": path, **result}
     except PermissionError:
-        raise HTTPException(status_code=401, detail="Token expired or invalid")
+        raise HTTPException(status_code=401, detail="Токен недействителен или истек")
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Path not found: {path}")
+        raise HTTPException(status_code=404, detail=f"Путь не найден: {path}")
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -149,15 +139,15 @@ async def import_yandex_file(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    """Download a file from Yandex Disk and process it as a document."""
+    # загрузка и обработка файла с диска
     token = data.get("token", "").strip()
     file_path = data.get("file_path", "").strip()
     file_name = data.get("file_name", "").strip()
 
     if not token:
-        raise HTTPException(status_code=400, detail="Token is required")
+        raise HTTPException(status_code=400, detail="Токен обязателен")
     if not file_path:
-        raise HTTPException(status_code=400, detail="file_path is required")
+        raise HTTPException(status_code=400, detail="file_path обязателен")
     if not file_name:
         file_name = os.path.basename(file_path)
 
@@ -165,16 +155,14 @@ async def import_yandex_file(
         from app.services.yandex_disk import YandexDiskService
         svc = YandexDiskService(token)
 
-        # Download to temp location
+        # временная загрузка
         file_ext = os.path.splitext(file_name)[1].lower()
         temp_path = os.path.join(settings.upload_dir, f"{uuid.uuid4().hex}{file_ext}")
         await svc.download_file(file_path, temp_path)
 
-        # Read downloaded bytes and use upload pipeline
         with open(temp_path, "rb") as f:
             file_bytes = f.read()
 
-        # Remove temp file — _save_and_register_file will save its own copy
         os.remove(temp_path)
 
         from app.routers.upload import _save_and_register_file, get_or_create_default_user
@@ -189,24 +177,24 @@ async def import_yandex_file(
         }
 
     except PermissionError:
-        raise HTTPException(status_code=401, detail="Yandex token expired")
+        raise HTTPException(status_code=401, detail="Токен Яндекса истек")
     except Exception as e:
-        logger.error(f"Yandex import failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+        logger.error(f"Ошибка импорта с Яндекса: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка импорта: {str(e)}")
 
 
 # --- Sync Sources CRUD ---
 
 @router.get("/sync-sources")
 async def list_sync_sources(db: Session = Depends(get_db)):
+    # список источников синхронизации
     sources = db.query(SyncSource).order_by(SyncSource.created_at.desc()).all()
     return [_source_to_dict(s) for s in sources]
 
 
 @router.post("/sync-sources")
 async def create_sync_source(data: dict, db: Session = Depends(get_db)):
-    """Create a new sync source. Accepts optional oauth_token/yandex_user
-    to create an already-connected source (auth-first flow)."""
+    # создание нового источника
     name = data.get("name", "").strip()
     folder_path = data.get("folder_path", "").strip()
     sync_interval = data.get("sync_interval", settings.sync_default_interval)
@@ -214,9 +202,9 @@ async def create_sync_source(data: dict, db: Session = Depends(get_db)):
     yandex_user = data.get("yandex_user", "")
 
     if not name:
-        raise HTTPException(status_code=400, detail="Name is required")
+        raise HTTPException(status_code=400, detail="Имя обязательно")
     if not folder_path:
-        raise HTTPException(status_code=400, detail="Folder path is required")
+        raise HTTPException(status_code=400, detail="Путь к папке обязателен")
     if not folder_path.startswith("/") and not folder_path.startswith("disk:/"):
         folder_path = "/" + folder_path
 
@@ -235,19 +223,20 @@ async def create_sync_source(data: dict, db: Session = Depends(get_db)):
     if oauth_token:
         _register_in_scheduler(source)
 
-    logger.info(f"Created sync source '{name}' (id={source.id}, connected={bool(oauth_token)})")
+    logger.info(f"Создан источник '{name}' (id={source.id})")
     return _source_to_dict(source)
 
 
 @router.delete("/sync-sources/{source_id}")
 async def delete_sync_source(source_id: int, db: Session = Depends(get_db)):
+    # удаление источника
     source = db.query(SyncSource).filter(SyncSource.id == source_id).first()
     if not source:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="Не найдено")
     _unregister_from_scheduler(source_id)
     db.delete(source)
     db.commit()
-    return {"message": "Deleted"}
+    return {"message": "Удалено"}
 
 
 @router.post("/sync-sources/{source_id}/sync")
@@ -256,31 +245,33 @@ async def trigger_sync(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
+    # ручной запуск синхронизации
     source = db.query(SyncSource).filter(SyncSource.id == source_id).first()
     if not source:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="Не найдено")
     if not source.oauth_token:
-        raise HTTPException(status_code=400, detail="Not connected")
+        raise HTTPException(status_code=400, detail="Не подключено")
     if source.status == "syncing":
-        raise HTTPException(status_code=409, detail="Already syncing")
+        raise HTTPException(status_code=409, detail="Уже синхронизируется")
     background_tasks.add_task(_run_sync_wrapper, source.id)
-    return {"message": "Sync started"}
+    return {"message": "Синхронизация запущена"}
 
 
 @router.post("/sync-sources/{source_id}/disconnect")
 async def disconnect_source(source_id: int, db: Session = Depends(get_db)):
+    # отключение источника
     source = db.query(SyncSource).filter(SyncSource.id == source_id).first()
     if not source:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="Не найдено")
     source.oauth_token = None
     source.yandex_user = None
     source.status = "not_connected"
     db.commit()
     _unregister_from_scheduler(source_id)
-    return {"message": "Disconnected"}
+    return {"message": "Отключено"}
 
 
-# --- Helpers ---
+# --- Вспомогательные функции ---
 
 def _source_to_dict(source: SyncSource) -> dict:
     return {
@@ -309,7 +300,7 @@ def _register_in_scheduler(source: SyncSource):
         from app.workers.sync_scheduler import register_source
         register_source(source.id, source.sync_interval)
     except Exception as e:
-        logger.warning(f"Could not register source {source.id}: {e}")
+        logger.warning(f"Ошибка регистрации источника {source.id}: {e}")
 
 
 def _unregister_from_scheduler(source_id: int):
@@ -317,4 +308,4 @@ def _unregister_from_scheduler(source_id: int):
         from app.workers.sync_scheduler import unregister_source
         unregister_source(source_id)
     except Exception as e:
-        logger.warning(f"Could not unregister source {source_id}: {e}")
+        logger.warning(f"Ошибка отмены регистрации источника {source_id}: {e}")

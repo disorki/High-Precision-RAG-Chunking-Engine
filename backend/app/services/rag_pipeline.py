@@ -18,18 +18,18 @@ from app.config import get_settings
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-# Supported file extensions
+# поддерживаемые расширения
 SUPPORTED_EXTENSIONS = {'.pdf', '.docx', '.xlsx', '.txt'}
 
 
 def get_file_extension(file_path: str) -> str:
-    """Get lowercase file extension."""
+    # получение расширения в нижнем регистре
     ext = os.path.splitext(file_path)[1].lower()
     return ext
 
 
 class RAGPipeline:
-    """RAG Pipeline for document processing and embedding generation."""
+    # обработка документов и генерация эмбеддингов
 
     def __init__(self):
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -37,13 +37,13 @@ class RAGPipeline:
             chunk_overlap=settings.chunk_overlap,
             length_function=len,
             separators=[
-                "\n\n",      # Paragraph break (highest priority)
-                "\n---\n",   # Markdown table separator
-                "\n| ",      # Table row start
-                "\n",        # Line break
-                ". ",        # Sentence break
-                " ",         # Word break
-                ""           # Character break (last resort)
+                "\n\n",      # абзац (приоритет)
+                "\n---\n",   # разделитель таблиц
+                "\n| ",      # начало строки таблицы
+                "\n",        # перевод строки
+                ". ",        # точка
+                " ",         # пробел
+                ""           # посимвольно (крайний случай)
             ]
         )
         self.ollama_url = settings.ollama_base_url
@@ -51,38 +51,29 @@ class RAGPipeline:
         self.retry_count = settings.embedding_retry_count
         self.retry_delay = settings.embedding_retry_delay
 
-    # ── Ollama Health & Model Checks ─────────────────────────────────
-
+    # проверка состояния ollama
     async def check_ollama_health(self) -> bool:
-        """
-        Check if Ollama is reachable.
-        Returns True if healthy, raises an error with a clear message if not.
-        """
+        # проверка доступности сервиса
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(f"{self.ollama_url}/api/version")
                 response.raise_for_status()
                 version_info = response.json()
-                logger.info(f"Ollama is healthy: version {version_info.get('version', 'unknown')}")
+                logger.info(f"Ollama доступна: версия {version_info.get('version', 'unknown')}")
                 return True
         except httpx.ConnectError:
             raise ConnectionError(
-                f"Cannot connect to Ollama at {self.ollama_url}. "
-                f"Make sure Ollama is running. If using Docker: docker exec -it rag-ollama ollama --version"
+                f"Нет связи с Ollama по адресу {self.ollama_url}. Проверьте запуск сервиса."
             )
         except httpx.TimeoutException:
             raise ConnectionError(
-                f"Ollama at {self.ollama_url} is not responding (timeout). "
-                f"The service may be starting up — try again in a moment."
+                f"Ollama не отвечает (таймаут). Попробуйте позже."
             )
         except Exception as e:
-            raise ConnectionError(f"Ollama health check failed: {e}")
+            raise ConnectionError(f"Ошибка проверки Ollama: {e}")
 
     async def ensure_model_available(self, model_name: str) -> bool:
-        """
-        Check if a model is available in Ollama.
-        Raises a clear error if the model is not pulled.
-        """
+        # проверка наличия модели
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
@@ -90,27 +81,25 @@ class RAGPipeline:
                     json={"name": model_name}
                 )
                 if response.status_code == 200:
-                    logger.info(f"Model '{model_name}' is available")
+                    logger.info(f"Модель '{model_name}' доступна")
                     return True
                 else:
                     raise ValueError(
-                        f"Model '{model_name}' is not available in Ollama. "
-                        f"Pull it first: ollama pull {model_name}"
+                        f"Модель '{model_name}' не загружена в Ollama. Выполните: ollama pull {model_name}"
                     )
         except httpx.ConnectError:
             raise ConnectionError(
-                f"Cannot connect to Ollama at {self.ollama_url} to check model '{model_name}'"
+                f"Нет связи с Ollama для проверки модели '{model_name}'"
             )
         except ValueError:
             raise
         except Exception as e:
-            logger.warning(f"Could not verify model '{model_name}': {e}")
-            return True  # Optimistically proceed
+            logger.warning(f"Не удалось проверить модель '{model_name}': {e}")
+            return True
 
-    # ── PDF ───────────────────────────────────────────────────────────
-
+    # извлечение текста из pdf
     def extract_text_from_pdf(self, file_path: str) -> List[dict]:
-        """Extract text from PDF file with page numbers."""
+        # извлечение текста по страницам
         try:
             reader = PdfReader(file_path)
             pages = []
@@ -123,29 +112,24 @@ class RAGPipeline:
                         "page_number": i + 1
                     })
 
-            logger.info(f"Extracted {len(pages)} pages from PDF: {file_path}")
+            logger.info(f"Извлечено {len(pages)} страниц из PDF: {file_path}")
             return pages
         except Exception as e:
-            logger.error(f"Error extracting PDF text: {e}")
+            logger.error(f"Ошибка извлечения текста PDF: {e}")
             raise
 
     def get_pdf_page_count(self, file_path: str) -> int:
-        """Get total page count of PDF."""
+        # получение количества страниц pdf
         try:
             reader = PdfReader(file_path)
             return len(reader.pages)
         except Exception as e:
-            logger.error(f"Error getting PDF page count: {e}")
+            logger.error(f"Ошибка получения количества страниц PDF: {e}")
             return 0
 
-    # ── DOCX ──────────────────────────────────────────────────────────
-
+    # извлечение текста из docx
     def _iter_block_items(self, doc: DocxDocument):
-        """
-        Yield each paragraph and table in document order.
-        This properly interleaves paragraphs and tables
-        (unlike iterating doc.paragraphs and doc.tables separately).
-        """
+        # итерация по параграфам и таблицам в порядке следования
         body = doc.element.body
         for child in body:
             if child.tag == qn('w:p'):
@@ -154,7 +138,7 @@ class RAGPipeline:
                 yield DocxTable(child, body)
 
     def _table_to_text(self, table: DocxTable) -> str:
-        """Convert a DOCX table to a readable text representation."""
+        # конвертация таблицы docx в текст
         rows_text = []
         for row in table.rows:
             cells = [cell.text.strip() for cell in row.cells]
@@ -162,11 +146,7 @@ class RAGPipeline:
         return "\n".join(rows_text)
 
     def extract_text_from_docx(self, file_path: str) -> List[dict]:
-        """
-        Extract text from Word (.docx) file.
-        Tables and paragraphs are extracted in correct document order.
-        Content is split into virtual 'pages' of ~3000 chars.
-        """
+        # извлечение контента из word с делением на страницы по 3000 симв.
         try:
             doc = DocxDocument(file_path)
             pages = []
@@ -188,7 +168,7 @@ class RAGPipeline:
                         current_text_parts.append(f"\n[Таблица]\n{table_text}\n")
                         char_count += len(table_text)
 
-                # Split into "pages" of ~3000 chars
+                # деление на виртуальные страницы
                 if char_count >= 3000:
                     pages.append({
                         "text": "\n".join(current_text_parts),
@@ -198,26 +178,22 @@ class RAGPipeline:
                     char_count = 0
                     page_number += 1
 
-            # Add remaining content
+            # остаток
             if current_text_parts:
                 pages.append({
                     "text": "\n".join(current_text_parts),
                     "page_number": page_number
                 })
 
-            logger.info(f"Extracted {len(pages)} sections from DOCX: {file_path}")
+            logger.info(f"Извлечено {len(pages)} секций из DOCX: {file_path}")
             return pages
         except Exception as e:
-            logger.error(f"Error extracting DOCX text: {e}")
+            logger.error(f"Ошибка извлечения текста DOCX: {e}")
             raise
 
-    # ── XLSX ──────────────────────────────────────────────────────────
-
+    # извлечение текста из xlsx
     def extract_text_from_xlsx(self, file_path: str) -> List[dict]:
-        """
-        Extract text from Excel (.xlsx) file.
-        Each worksheet becomes a separate 'page'.
-        """
+        # каждый лист становится отдельной страницей
         try:
             wb = load_workbook(file_path, read_only=True, data_only=True)
             pages = []
@@ -245,19 +221,15 @@ class RAGPipeline:
                     })
 
             wb.close()
-            logger.info(f"Extracted {len(pages)} sheets from XLSX: {file_path}")
+            logger.info(f"Извлечено {len(pages)} листов из XLSX: {file_path}")
             return pages
         except Exception as e:
-            logger.error(f"Error extracting XLSX text: {e}")
+            logger.error(f"Ошибка извлечения текста XLSX: {e}")
             raise
 
-    # ── TXT ───────────────────────────────────────────────────────────
-
+    # извлечение текста из txt
     def extract_text_from_txt(self, file_path: str) -> List[dict]:
-        """
-        Extract text from a plain text (.txt) file.
-        Splits into virtual pages of ~3000 chars.
-        """
+        # чтение текстового файла с делением на блоки
         try:
             encodings = ['utf-8', 'cp1251', 'latin-1']
             content = None
@@ -270,7 +242,7 @@ class RAGPipeline:
                     continue
 
             if content is None:
-                raise ValueError("Could not decode text file with any supported encoding")
+                raise ValueError("Не удалось определить кодировку файла")
 
             if not content.strip():
                 return []
@@ -304,16 +276,15 @@ class RAGPipeline:
                     "page_number": page_number
                 })
 
-            logger.info(f"Extracted {len(pages)} sections from TXT: {file_path}")
+            logger.info(f"Извлечено {len(pages)} секций из TXT: {file_path}")
             return pages
         except Exception as e:
-            logger.error(f"Error extracting TXT text: {e}")
+            logger.error(f"Ошибка извлечения текста TXT: {e}")
             raise
 
-    # ── Universal Methods ─────────────────────────────────────────────
-
+    # универсальный метод извлечения
     def extract_text(self, file_path: str) -> List[dict]:
-        """Extract text from a file, auto-detecting format by extension."""
+        # автоматическое определение формата по расширению
         ext = get_file_extension(file_path)
 
         if ext == '.pdf':
@@ -325,10 +296,10 @@ class RAGPipeline:
         elif ext == '.txt':
             return self.extract_text_from_txt(file_path)
         else:
-            raise ValueError(f"Unsupported file format: {ext}")
+            raise ValueError(f"Неподдерживаемый формат: {ext}")
 
     def get_page_count(self, file_path: str) -> int:
-        """Get page/section/sheet count depending on file type."""
+        # получение кол-ва страниц/секций для разных типов файлов
         ext = get_file_extension(file_path)
 
         if ext == '.pdf':
@@ -359,7 +330,7 @@ class RAGPipeline:
             return 0
 
     def chunk_text(self, pages: List[dict], filename: str = None) -> List[dict]:
-        """Split extracted pages into chunks while preserving page numbers and adding UUIDs."""
+        # деление текста на чанки с сохранением метаданных
         chunks = []
         chunk_index = 0
 
@@ -383,14 +354,11 @@ class RAGPipeline:
                 })
                 chunk_index += 1
 
-        logger.info(f"Created {len(chunks)} chunks from {len(pages)} pages")
+        logger.info(f"Создано {len(chunks)} чанков из {len(pages)} страниц")
         return chunks
 
     async def generate_context_header(self, text: str) -> Optional[str]:
-        """
-        Generate a brief summarizing header via LLM for a text chunk.
-        Raises exceptions on failure, designed to be retried by the caller.
-        """
+        # генерация заголовка чанка через llm
         if not settings.enable_context_headers:
             return None
 
@@ -403,7 +371,6 @@ class RAGPipeline:
         last_error = None
         for attempt in range(self.retry_count):
             try:
-                # We use a longer timeout since generation takes more time than embeddings
                 async with httpx.AsyncClient(timeout=60.0) as client:
                     response = await client.post(
                         f"{self.ollama_url}/api/generate",
@@ -418,40 +385,35 @@ class RAGPipeline:
                     data = response.json()
                     header = data.get("response", "").strip()
                     if not header:
-                        raise ValueError("Ollama returned empty response for context header.")
+                        raise ValueError("Пустой ответ от Ollama.")
                     return header
 
             except (httpx.ConnectError, httpx.TimeoutException) as e:
                 last_error = e
                 wait_time = self.retry_delay * (2 ** attempt)
                 logger.warning(
-                    f"Context header attempt {attempt + 1}/{self.retry_count} failed "
-                    f"(transient: {type(e).__name__}). Retrying in {wait_time}s..."
+                    f"Попытка {attempt + 1}/{self.retry_count} не удалась. Повтор через {wait_time}с..."
                 )
                 await asyncio.sleep(wait_time)
             except httpx.HTTPStatusError as e:
-                # Non-retryable
                 if e.response.status_code == 404:
-                    raise ValueError(f"Model '{settings.chat_model}' not found in Ollama.")
+                    raise ValueError(f"Модель '{settings.chat_model}' не найдена в Ollama.")
                 last_error = e
                 wait_time = self.retry_delay * (2 ** attempt)
                 await asyncio.sleep(wait_time)
             except Exception as e:
                 last_error = e
-                logger.error(f"Context header generation error: {e}")
+                logger.error(f"Ошибка генерации заголовка: {e}")
                 raise
 
-        raise ConnectionError(f"Failed to generate context header. Last error: {last_error}")
+        raise ConnectionError(f"Ошибка генерации заголовка. Последняя ошибка: {last_error}")
 
     async def generate_context_headers_batch(
         self,
         texts: List[str],
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> List[Optional[str]]:
-        """
-        Generate context headers for multiple texts.
-        Uses a semaphore to limit concurrency based on settings.
-        """
+        # пакетная генерация заголовков
         if not settings.enable_context_headers:
             return [None] * len(texts)
 
@@ -466,7 +428,7 @@ class RAGPipeline:
                     header = await self.generate_context_header(text)
                     headers[idx] = header
                 except Exception as e:
-                    logger.error(f"Failed to generate context header for chunk {idx}: {e}")
+                    logger.error(f"Не удалось сгенерировать заголовок для чанка {idx}: {e}")
                     state["failed"] += 1
                 
                 state["completed"] += 1
@@ -477,17 +439,14 @@ class RAGPipeline:
         await asyncio.gather(*tasks)
 
         if state["failed"] > 0:
-            logger.warning(f"Context headers generation: {state['failed']}/{len(texts)} failed")
+            logger.warning(f"Генерация заголовков: {state['failed']}/{len(texts)} не удалась")
         else:
-            logger.info(f"Successfully generated {len(texts)} context headers")
+            logger.info(f"Успешно сгенерировано {len(texts)} заголовков")
 
         return headers
 
     async def generate_embedding(self, text: str) -> Optional[List[float]]:
-        """
-        Generate embedding for text using Ollama with retry logic.
-        Retries on transient errors (connection, timeout) with exponential backoff.
-        """
+        # генерация эмбеддинга через ollama с повторами
         last_error = None
 
         for attempt in range(self.retry_count):
@@ -504,42 +463,30 @@ class RAGPipeline:
                     data = response.json()
                     embedding = data.get("embedding")
                     if embedding is None:
-                        raise ValueError(f"Ollama returned no embedding. Response: {data}")
+                        raise ValueError(f"Нет данных эмбеддинга. Ответ: {data}")
                     return embedding
 
             except (httpx.ConnectError, httpx.TimeoutException) as e:
                 last_error = e
                 wait_time = self.retry_delay * (2 ** attempt)
-                logger.warning(
-                    f"Embedding attempt {attempt + 1}/{self.retry_count} failed "
-                    f"(transient: {type(e).__name__}). Retrying in {wait_time}s..."
-                )
                 await asyncio.sleep(wait_time)
 
             except httpx.HTTPStatusError as e:
-                # Non-retryable HTTP errors (e.g. model not found = 404)
                 if e.response.status_code == 404:
                     raise ValueError(
-                        f"Model '{self.embedding_model}' not found in Ollama. "
-                        f"Pull it: ollama pull {self.embedding_model}"
+                        f"Модель '{self.embedding_model}' не найдена в Ollama. Загрузите ее: ollama pull {self.embedding_model}"
                     )
                 last_error = e
                 wait_time = self.retry_delay * (2 ** attempt)
-                logger.warning(
-                    f"Embedding attempt {attempt + 1}/{self.retry_count} failed "
-                    f"(HTTP {e.response.status_code}). Retrying in {wait_time}s..."
-                )
                 await asyncio.sleep(wait_time)
 
             except Exception as e:
                 last_error = e
-                logger.error(f"Embedding generation error: {e}")
+                logger.error(f"Ошибка генерации эмбеддинга: {e}")
                 raise
 
-        # All retries exhausted
         raise ConnectionError(
-            f"Failed to generate embedding after {self.retry_count} attempts. "
-            f"Last error: {last_error}"
+            f"Ошибка генерации эмбеддинга после {self.retry_count} попыток. Последняя ошибка: {last_error}"
         )
 
     async def generate_embeddings_batch(
@@ -547,10 +494,7 @@ class RAGPipeline:
         texts: List[str],
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> List[Optional[List[float]]]:
-        """
-        Generate embeddings for multiple texts concurrently.
-        Uses a semaphore to limit concurrency based on settings.
-        """
+        # параллельная генерация эмбеддингов
         embeddings: List[Optional[List[float]]] = [None] * len(texts)
         state = {"failed": 0, "completed": 0}
         
@@ -563,8 +507,8 @@ class RAGPipeline:
                     embeddings[idx] = embedding
                 except Exception as e:
                     logger.error(
-                        f"Failed to generate embedding for chunk {idx} "
-                        f"(text preview: '{text[:80]}...'): {e}"
+                        f"Не удалось сгенерировать эмбеддинг для чанка {idx} "
+                        f"(предпросмотр текста: '{text[:80]}...'): {e}"
                     )
                     state["failed"] += 1
                 
@@ -572,49 +516,46 @@ class RAGPipeline:
                 if progress_callback and state["completed"] % 5 == 0:
                     progress_callback(state["completed"], len(texts))
                 if state["completed"] % 10 == 0:
-                    logger.info(f"Generated {state['completed']}/{len(texts)} embeddings ({state['failed']} failed)")
+                    logger.info(f"Сгенерировано {state['completed']}/{len(texts)} эмбеддингов ({state['failed']} не удалось)")
 
         tasks = [process_one(i, txt) for i, txt in enumerate(texts)]
         await asyncio.gather(*tasks)
 
         if state["failed"] > 0:
-            logger.warning(f"Embedding generation: {state['failed']}/{len(texts)} failed")
+            logger.warning(f"Генерация эмбеддингов: {state['failed']}/{len(texts)} не удалась")
 
         return embeddings
 
     async def process_document(self, file_path: str) -> List[dict]:
-        """
-        Full pipeline: health check, extract text, chunk, and generate embeddings.
-        """
-        # Pre-flight checks
+        # полный цикл: проверка, извлечение, чанкинг, эмбеддинги
         await self.check_ollama_health()
         await self.ensure_model_available(self.embedding_model)
 
-        # Extract text
+        # извлечение текста
         pages = self.extract_text(file_path)
         if not pages:
-            raise ValueError("No text extracted from document")
+            raise ValueError("Не удалось извлечь текст из документа")
 
-        # Chunk
+        # чанкинг
         chunks = self.chunk_text(pages)
         if not chunks:
-            raise ValueError("No chunks created from text")
+            raise ValueError("Не удалось создать чанки из текста")
 
-        # Generate embeddings
+        # эмбеддинги
         texts = [chunk["text"] for chunk in chunks]
         embeddings = await self.generate_embeddings_batch(texts)
 
-        # Combine
+        # сборка результата
         processed_chunks = []
         for chunk, embedding in zip(chunks, embeddings):
             if embedding is not None:
                 processed_chunks.append({**chunk, "embedding": embedding})
             else:
-                logger.warning(f"Skipping chunk {chunk['chunk_index']} - no embedding")
+                logger.warning(f"Пропуск чанка {chunk['chunk_index']} - нет эмбеддинга")
 
-        logger.info(f"Successfully processed {len(processed_chunks)} chunks")
+        logger.info(f"Успешно обработано {len(processed_chunks)} чанков")
         return processed_chunks
 
 
-# Singleton instance
+# синглтон пайплайна
 rag_pipeline = RAGPipeline()

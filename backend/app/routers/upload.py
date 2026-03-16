@@ -33,7 +33,7 @@ ARCHIVE_EXTENSIONS = {'.zip', '.rar'}
 
 
 def get_or_create_default_user(db: Session) -> User:
-    """Get or create a default user for demo purposes."""
+    # получение или создание тестового пользователя
     user = db.query(User).filter(User.email == "demo@example.com").first()
     if not user:
         user = User(email="demo@example.com")
@@ -44,10 +44,7 @@ def get_or_create_default_user(db: Session) -> User:
 
 
 def extract_archive(file_path: str, extract_dir: str) -> List[str]:
-    """
-    Extract files from a ZIP or RAR archive.
-    Returns a list of extracted file paths that are supported document types.
-    """
+    # распаковка zip или rar архива
     extracted_files = []
     ext = os.path.splitext(file_path)[1].lower()
 
@@ -61,10 +58,10 @@ def extract_archive(file_path: str, extract_dir: str) -> List[str]:
                 with rarfile.RarFile(file_path, 'r') as rf:
                     rf.extractall(extract_dir)
             except ImportError:
-                logger.error("rarfile not installed. Cannot extract RAR archives.")
+                logger.error("rarfile не установлен")
                 return []
 
-        # Walk extracted directory and collect supported files
+        # сбор поддерживаемых файлов из архива
         for root, dirs, files in os.walk(extract_dir):
             for fname in files:
                 if fname.startswith('._') or fname.startswith('__MACOSX'):
@@ -74,13 +71,13 @@ def extract_archive(file_path: str, extract_dir: str) -> List[str]:
                     extracted_files.append(os.path.join(root, fname))
 
     except Exception as e:
-        logger.error(f"Archive extraction failed: {e}")
+        logger.error(f"Ошибка распаковки архива: {e}")
 
     return extracted_files
 
 
 def _create_background_task(doc_id: int, file_path: str):
-    """Factory for background processing tasks (avoids closure bugs in loops)."""
+    # фоновая задача для обработки документа
     def run_processing_sync():
         import asyncio
         from app.database import SessionLocal
@@ -88,7 +85,7 @@ def _create_background_task(doc_id: int, file_path: str):
         try:
             asyncio.run(process_document_task(doc_id, file_path, task_db))
         except Exception as e:
-            logger.error(f"Background processing failed for doc {doc_id}: {e}")
+            logger.error(f"Ошибка фоновой обработки документа {doc_id}: {e}")
             doc = task_db.query(Document).filter(Document.id == doc_id).first()
             if doc:
                 doc.status = DocumentStatus.FAILED
@@ -106,7 +103,7 @@ def _save_and_register_file(
     db: Session,
     background_tasks: BackgroundTasks
 ) -> UploadResponse:
-    """Save a single file to disk, create DB record, schedule processing."""
+    # сохранение файла на диск и регистрация в базе
     file_extension = os.path.splitext(original_filename)[1].lower()
 
     if file_extension not in SUPPORTED_EXTENSIONS:
@@ -114,7 +111,7 @@ def _save_and_register_file(
             document_id=0,
             filename=original_filename,
             status=DocumentStatusEnum.FAILED,
-            message=f"Unsupported file type: {file_extension}"
+            message=f"Неподдерживаемый тип файла: {file_extension}"
         )
 
     if len(file_bytes) > settings.max_file_size:
@@ -122,7 +119,7 @@ def _save_and_register_file(
             document_id=0,
             filename=original_filename,
             status=DocumentStatusEnum.FAILED,
-            message="File too large"
+            message="Файл слишком большой"
         )
 
     unique_filename = f"{uuid.uuid4()}{file_extension}"
@@ -148,7 +145,7 @@ def _save_and_register_file(
         document_id=document.id,
         filename=original_filename,
         status=DocumentStatusEnum.PROCESSING,
-        message="Processing started"
+        message="Обработка запущена"
     )
 
 
@@ -158,26 +155,26 @@ async def upload_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Upload a single document for processing."""
+    # загрузка одиночного документа
     file_extension = os.path.splitext(file.filename)[1].lower()
     if file_extension not in SUPPORTED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type. Supported formats: {', '.join(SUPPORTED_EXTENSIONS)}"
+            detail=f"Неподдерживаемый формат. Список: {', '.join(SUPPORTED_EXTENSIONS)}"
         )
 
     contents = await file.read()
     if len(contents) > settings.max_file_size:
         raise HTTPException(
             status_code=400,
-            detail=f"File too large. Maximum size is {settings.max_file_size // 1024 // 1024}MB"
+            detail=f"Файл великоват. Лимит: {settings.max_file_size // 1024 // 1024}MB"
         )
 
     user = get_or_create_default_user(db)
     os.makedirs(settings.upload_dir, exist_ok=True)
 
     result = _save_and_register_file(contents, file.filename, user.id, db, background_tasks)
-    logger.info(f"Document {result.document_id} uploaded, processing started")
+    logger.info(f"Документ {result.document_id} загружен, обработка началась")
     return result
 
 
@@ -187,11 +184,7 @@ async def upload_documents_batch(
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db)
 ):
-    """
-    Upload multiple documents at once.
-    Supports: individual files (PDF, DOCX, XLSX, TXT) and archives (ZIP, RAR).
-    Archives are automatically extracted and all supported files inside are processed.
-    """
+    # массовая загрузка документов и архивов
     user = get_or_create_default_user(db)
     os.makedirs(settings.upload_dir, exist_ok=True)
 
@@ -203,7 +196,7 @@ async def upload_documents_batch(
             contents = await file.read()
 
             if file_extension in ARCHIVE_EXTENSIONS:
-                # Handle archive: extract and process each file inside
+                # обработка архива: распаковка и импорт каждого файла
                 tmp_dir = tempfile.mkdtemp()
                 archive_path = os.path.join(tmp_dir, file.filename)
                 try:
@@ -219,7 +212,7 @@ async def upload_documents_batch(
                             document_id=0,
                             filename=file.filename,
                             status=DocumentStatusEnum.FAILED,
-                            message="No supported files found in archive"
+                            message="В архиве нет подходящих файлов"
                         ))
                         continue
 
@@ -245,11 +238,11 @@ async def upload_documents_batch(
                     document_id=0,
                     filename=file.filename,
                     status=DocumentStatusEnum.FAILED,
-                    message=f"Unsupported file type: {file_extension}"
+                    message=f"Формат не поддерживается: {file_extension}"
                 ))
 
         except Exception as e:
-            logger.error(f"Failed to process file {file.filename} in batch: {e}")
+            logger.error(f"Ошибка обработки файла {file.filename}: {e}")
             results.append(UploadResponse(
                 document_id=0,
                 filename=file.filename,
@@ -260,7 +253,7 @@ async def upload_documents_batch(
     successful = sum(1 for r in results if r.status == DocumentStatusEnum.PROCESSING)
     return UploadBatchResponse(
         results=results,
-        message=f"Batch complete: {successful} files processing, {len(results) - successful} failed."
+        message=f"Пакетная загрузка завершена: {successful} в обработке, {len(results) - successful} с ошибкой"
     )
 
 
@@ -269,10 +262,10 @@ async def get_document(
     document_id: int,
     db: Session = Depends(get_db)
 ):
-    """Get document status and details."""
+    # статус и детали документа
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="Документ не найден")
     return document
 
 
@@ -281,12 +274,12 @@ async def get_document_file(
     document_id: int,
     db: Session = Depends(get_db)
 ):
-    """Download/preview the original document file."""
+    # скачивание или просмотр файла
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="Документ не найден")
     if not os.path.exists(document.file_path):
-        raise HTTPException(status_code=404, detail="File not found on disk")
+        raise HTTPException(status_code=404, detail="Файл отсутствует на диске")
 
     file_extension = os.path.splitext(document.original_filename)[1].lower()
     content_type = MIME_TYPES.get(file_extension, 'application/octet-stream')
@@ -304,10 +297,10 @@ async def get_document_file(
 @router.get("/documents", response_model=list[DocumentResponse])
 async def list_documents(
     skip: int = 0,
-    limit: int = 20,
+    limit: int = 500,
     db: Session = Depends(get_db)
 ):
-    """List all documents."""
+    # список всех документов
     documents = db.query(Document)\
         .order_by(Document.created_at.desc())\
         .offset(skip)\
@@ -318,22 +311,22 @@ async def list_documents(
 
 @router.delete("/documents/failed")
 async def delete_failed_documents(db: Session = Depends(get_db)):
-    """Delete all documents with 'failed' status and their related data."""
+    # удаление всех документов со статусом 'failed'
     from sqlalchemy import text
 
     try:
-        # Find all failed document IDs
+        # поиск id упавших документов
         failed_docs = db.execute(text(
             "SELECT id, file_path FROM documents WHERE status::text = 'failed'"
         )).fetchall()
 
         if not failed_docs:
-            return {"message": "No failed documents to delete", "deleted_count": 0}
+            return {"message": "Нет документов для удаления", "deleted_count": 0}
 
         doc_ids = [row.id for row in failed_docs]
         file_paths = [row.file_path for row in failed_docs]
 
-        # Delete in FK order for all failed docs at once
+        # удаление связанных данных
         db.execute(text("""
             DELETE FROM chat_messages
             WHERE session_id IN (
@@ -355,7 +348,7 @@ async def delete_failed_documents(db: Session = Depends(get_db)):
 
         db.commit()
 
-        # Clean up files from disk
+        # удаление файлов с диска
         for fp in file_paths:
             try:
                 if fp and os.path.exists(fp):
@@ -363,12 +356,12 @@ async def delete_failed_documents(db: Session = Depends(get_db)):
             except Exception:
                 pass
 
-        logger.info(f"Batch deleted {len(doc_ids)} failed documents")
-        return {"message": f"Deleted {len(doc_ids)} failed documents", "deleted_count": len(doc_ids)}
+        logger.info(f"Удалено {len(doc_ids)} упавших документов")
+        return {"message": f"Удалено {len(doc_ids)} документов", "deleted_count": len(doc_ids)}
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to batch delete failed documents: {e}")
+        logger.error(f"Ошибка при массовом удалении документов: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -377,18 +370,17 @@ async def delete_document(
     document_id: int,
     db: Session = Depends(get_db)
 ):
-    """Delete a document, its chunks, chat sessions, and file."""
+    # удаление документа, его чанков и сессий чата
     from sqlalchemy import text
 
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="Документ не найден")
 
     file_path = document.file_path
 
     try:
-        # Use raw SQL to delete in strict FK order to avoid constraint violations
-        # 1. Delete chat messages for all sessions linked to this document
+        # удаление в строгом порядке для соблюдения ограничений fk
         db.execute(text("""
             DELETE FROM chat_messages
             WHERE session_id IN (
@@ -396,34 +388,31 @@ async def delete_document(
             )
         """), {"doc_id": document_id})
 
-        # 2. Delete chat sessions linked to this document
         db.execute(text(
             "DELETE FROM chat_sessions WHERE document_id = :doc_id"
         ), {"doc_id": document_id})
 
-        # 3. Delete document chunks
         db.execute(text(
             "DELETE FROM document_chunks WHERE document_id = :doc_id"
         ), {"doc_id": document_id})
 
-        # 4. Delete the document record itself
         db.execute(text(
             "DELETE FROM documents WHERE id = :doc_id"
         ), {"doc_id": document_id})
 
         db.commit()
 
-        # 5. Delete file from disk (after successful DB commit)
+        # удаление файла
         try:
             if file_path and os.path.exists(file_path):
                 os.remove(file_path)
         except Exception as e:
-            logger.warning(f"Failed to delete file from disk: {e}")
+            logger.warning(f"Ошибка удаления файла с диска: {e}")
 
-        logger.info(f"Document {document_id} fully deleted")
-        return {"message": "Document deleted successfully"}
+        logger.info(f"Документ {document_id} удален")
+        return {"message": "Документ успешно удален"}
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to delete document {document_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
+        logger.error(f"Ошибка удаления документа {document_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка удаления: {str(e)}")

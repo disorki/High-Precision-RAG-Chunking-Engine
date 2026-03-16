@@ -1,4 +1,4 @@
-# High-Precision RAG Chunking Engine & Flowise AI Agent
+# High-Precision RAG Chunking Engine
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python: 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -8,17 +8,22 @@
 
 > *Read this documentation in [Russian (Русский)](README.ru.md)*
 
-A modern, high-precision Retrieval-Augmented Generation (RAG) system engineered for deep analytical document processing. The system features an integrated **Flowise ReAct AI Agent** and ensures complete data privacy through **fully local processing** using **Ollama** (powered by Qwen 2.5).
+A modern, high-precision Retrieval-Augmented Generation (RAG) system engineered for deep analytical document processing. The system features a **built-in Native RAG Agent** and ensures complete data privacy through **fully local processing** using **Ollama** (powered by Qwen 2.5).
 
 Designed for complex data extraction, synthesis, and analysis across texts, tables, and scanned document formats.
+
+> [!IMPORTANT]
+> **Detailed Core Engine Documentation:**
+> - **[English Technical Specs](CORE_ENGINE.md)**
+> - **[Russian Technical Specs (Русский)](CORE_ENGINE.ru.md)**
 
 ---
 
 ## Enterprise-Grade Features
 
-*   **Autonomous AI Agent (Flowise Integration)**
-    *   Embedded ReAct (Reasoning and Acting) agent architecture.
-    *   Dynamic, autonomous tool selection to handle complex, multi-step user queries.
+*   **Autonomous AI Agent (Native RAG Implementation)**
+    *   Optimized ReAct (Reasoning and Acting) logic running directly on the backend.
+    *   Dynamic context construction to handle complex, multi-step user queries.
 *   **Comprehensive RAG Toolchain (7 Specialized Modules)**
     1.  `search_all`: Global semantic vector search across the entire document repository.
     2.  `search_document`: Targeted contextual search within a specified document.
@@ -44,7 +49,7 @@ Designed for complex data extraction, synthesis, and analysis across texts, tabl
 
 ## System Architecture
 
-The application is distributed across four robust microservices, seamlessly orchestrated via Docker:
+The application is distributed across three robust microservices, seamlessly orchestrated via Docker:
 
 1.  **Frontend Module (`:3000`)**
     *   *Tech Stack:* Next.js App Router, React, Tailwind CSS.
@@ -52,9 +57,7 @@ The application is distributed across four robust microservices, seamlessly orch
 2.  **Backend Core (`:8000`)**
     *   *Tech Stack:* FastAPI (Python), LangChain, unstructured.
     *   *Role:* Orchestrates the ingestion pipeline—parsing, advanced chunking (Semantic + Sliding Window overlay), embedding generation, vector database routing, and exposing RESTful API adapters for Flowise tool consumption.
-3.  **Flowise Orchestrator (`:3001`)**
-    *   *Role:* Visual pipeline constructor acting as the cognitive engine for the ReAct agent, maintaining stateful conversational context (BufferMemory).
-4.  **Database & Inference Layer**
+3. **Database & Inference Layer**
     *   `PostgreSQL + pgvector` (`:5432`): Persistent storage for document chunks and high-dimensional vector embeddings.
     *   `Ollama` (`:11434`): Local inference engine securely hosting `qwen2.5:7b` for generation and embeddings.
 
@@ -84,20 +87,7 @@ docker exec -it rag-ollama ollama pull qwen2.5:7b
 ```
 *(Note: You may pull alternative embedding models like `mxbai-embed-large` and update the backend configuration accordingly).*
 
-### 3. Configure the Flowise Agent
-
-1. Access the Flowise dashboard at `http://localhost:3001` (Credentials: `admin` / `admin123`).
-2. Navigate to **Chatflows** and click **Add New**.
-3. Import the pre-configured cognitive architecture: select **Load Chatflow** and upload `flowise_chatflow.json` (located in the project root).
-4. Within the Chatflow settings, generate and copy your unique `API_KEY` and `Chatflow ID`.
-5. Inject these credentials into your `docker-compose.yml` under the `frontend` environment variables:
-   ```yaml
-   - NEXT_PUBLIC_FLOWISE_CHATFLOW_ID=your_chatflow_id
-   - FLOWISE_API_KEY=your_api_key
-   ```
-6. Apply the configuration by restarting the frontend service: `docker restart rag-frontend`
-
-### 4. Access the Platform
+### 3. Access the Platform
 Navigate to **[http://localhost:3000](http://localhost:3000)** to access the operational dashboard.
 *   **Overview Tab:** Ingest documents via local drag-and-drop or bind your Yandex.Disk for automated cloud retrieval.
 *   **Document Analysis Tabs:** Initiate deep querying and analysis with the AI Agent in the "Document" or "All documents" workspaces.

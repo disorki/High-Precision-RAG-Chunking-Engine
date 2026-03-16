@@ -11,27 +11,27 @@ settings = get_settings()
 
 
 class DocumentStatus(str, enum.Enum):
-    """Status of document processing."""
+    # статус обработки документа
     PROCESSING = "processing"
     READY = "ready"
     FAILED = "failed"
 
 
 class User(Base):
-    """User model for authentication and ownership."""
+    # модель пользователя
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationships
+    # связи
     documents = relationship("Document", back_populates="user")
     chat_sessions = relationship("ChatSession", back_populates="user")
 
 
 class Document(Base):
-    """Document model for uploaded files."""
+    # модель документа (загруженного файла)
     __tablename__ = "documents"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -40,7 +40,7 @@ class Document(Base):
     original_filename = Column(String(255), nullable=False)
     file_path = Column(String(512), nullable=False)
     status = Column(
-        Enum(DocumentStatus),
+        Enum(DocumentStatus, values_callable=lambda obj: [e.value for e in obj]),
         default=DocumentStatus.PROCESSING,
         nullable=False
     )
@@ -52,14 +52,14 @@ class Document(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
+    # связи
     user = relationship("User", back_populates="documents")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
     chat_sessions = relationship("ChatSession", back_populates="document")
 
 
 class DocumentChunk(Base):
-    """Vector storage for document chunks with embeddings."""
+    # чанки документов с векторными эмбеддингами
     __tablename__ = "document_chunks"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -72,31 +72,31 @@ class DocumentChunk(Base):
     context_header = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationships
+    # связи
     document = relationship("Document", back_populates="chunks")
 
 
 class ChatSession(Base):
-    """Chat session for conversation context."""
+    # сессия чата (контекст диалога)
     __tablename__ = "chat_sessions"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
     title = Column(String(255), nullable=True)
-    ip_address = Column(String(45), nullable=True, index=True)  # IPv4/IPv6
+    ip_address = Column(String(45), nullable=True, index=True)
     user_agent = Column(String(512), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
+    # связи
     user = relationship("User", back_populates="chat_sessions")
     document = relationship("Document", back_populates="chat_sessions")
     messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
 
 
 class ChatMessage(Base):
-    """Individual chat messages within a session."""
+    # сообщение внутри сессии
     __tablename__ = "chat_messages"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -106,21 +106,21 @@ class ChatMessage(Base):
     ip_address = Column(String(45), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationships
+    # связи
     session = relationship("ChatSession", back_populates="messages")
 
 
 class SyncSource(Base):
-    """External sync source (e.g., Yandex Disk folder)."""
+    # источник синхронизации (например, яндекс диск)
     __tablename__ = "sync_sources"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     source_type = Column(String(50), default="yandex_disk")
-    folder_path = Column(String(1024), nullable=False)  # Path on Yandex Disk
-    oauth_token = Column(Text, nullable=True)  # Per-source OAuth token
-    yandex_user = Column(String(255), nullable=True)  # Yandex display name
-    sync_interval = Column(Integer, default=30)  # Minutes between syncs
+    folder_path = Column(String(1024), nullable=False)  # путь на диске
+    oauth_token = Column(Text, nullable=True)
+    yandex_user = Column(String(255), nullable=True)
+    sync_interval = Column(Integer, default=30)  # в минутах
     last_synced_at = Column(DateTime, nullable=True)
     status = Column(String(50), default="idle")  # idle / syncing / error / not_connected
     error_message = Column(Text, nullable=True)

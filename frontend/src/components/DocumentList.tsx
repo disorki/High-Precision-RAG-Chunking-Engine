@@ -130,7 +130,7 @@ export default function DocumentList({
     const [searchQuery, setSearchQuery] = useState("");
     const [sortMode, setSortMode] = useState<SortMode>("date");
 
-    // Counts by status
+    // подсчет по статусам
     const counts = useMemo(() => ({
         all: documents.length,
         ready: documents.filter(d => d.status === "ready").length,
@@ -138,16 +138,16 @@ export default function DocumentList({
         failed: documents.filter(d => d.status === "failed").length,
     }), [documents]);
 
-    // Filtered + sorted documents
+    // фильтрация и сортировка
     const filteredDocs = useMemo(() => {
         let results = documents;
 
-        // Status filter
+        // фильтр по статусу
         if (statusFilter !== "all") {
             results = results.filter(d => d.status === statusFilter);
         }
 
-        // Search filter
+        // поиск
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
             results = results.filter(d =>
@@ -155,7 +155,7 @@ export default function DocumentList({
             );
         }
 
-        // Sort
+        // сортировка
         results = [...results].sort((a, b) => {
             if (sortMode === "name") {
                 return a.original_filename.localeCompare(b.original_filename);
@@ -227,7 +227,7 @@ export default function DocumentList({
 
     return (
         <>
-            {/* Filter Tabs */}
+            {/* вкладки фильтров */}
             <div className="flex gap-1 p-1 mb-3 bg-[rgba(255,255,255,0.02)] rounded-xl border border-[var(--border-subtle)]">
                 {filterTabs.map((tab) => (
                     <button
@@ -246,7 +246,7 @@ export default function DocumentList({
                 ))}
             </div>
 
-            {/* Search + Sort */}
+            {/* поиск и сортировка */}
             <div className="flex gap-2 mb-3">
                 <div className="flex-1 relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
@@ -276,7 +276,7 @@ export default function DocumentList({
                 </button>
             </div>
 
-            {/* Batch delete for failed */}
+            {/* массовое удаление ошибок */}
             {statusFilter === "failed" && counts.failed > 0 && (
                 <button
                     onClick={handleDeleteAllFailed}
@@ -287,7 +287,7 @@ export default function DocumentList({
                 </button>
             )}
 
-            {/* Document Cards */}
+            {/* карточки документов */}
             <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1 doc-list-scroll">
                 {filteredDocs.length === 0 ? (
                     <div className="text-center py-8">
@@ -307,12 +307,12 @@ export default function DocumentList({
                             className={`doc-card group ${selectedDocument?.id === doc.id ? "doc-card-selected" : ""} ${doc.status === "failed" ? "doc-card-failed" : ""} ${deletingId === doc.id ? "opacity-40 pointer-events-none" : ""}`}
                         >
                             <div className="flex items-start gap-3">
-                                {/* File icon */}
+                                {/* иконка файла */}
                                 <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${getIconBg(doc.original_filename, doc.status)}`}>
                                     <FileIcon filename={doc.original_filename} status={doc.status} />
                                 </div>
 
-                                {/* Content */}
+                                {/* содержимое */}
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
                                         <p className="text-[var(--text-primary)] text-sm font-medium truncate flex-1">
@@ -323,7 +323,7 @@ export default function DocumentList({
                                         </span>
                                     </div>
 
-                                    {/* Status + meta row */}
+                                    {/* статус и метаданные */}
                                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                                         <StatusBadge status={doc.status} />
 
@@ -343,7 +343,7 @@ export default function DocumentList({
                                         )}
                                     </div>
 
-                                    {/* Processing progress */}
+                                    {/* прогресс обработки */}
                                     {doc.status === "processing" && (
                                         <div className="mt-2">
                                             <div className="flex items-center justify-between mb-1">
@@ -368,7 +368,7 @@ export default function DocumentList({
                                         </div>
                                     )}
 
-                                    {/* Error message */}
+                                    {/* сообщение об ошибке */}
                                     {doc.status === "failed" && doc.error_message && (
                                         <div className="mt-1.5">
                                             <button
@@ -390,7 +390,7 @@ export default function DocumentList({
                                     )}
                                 </div>
 
-                                {/* Action toolbar */}
+                                {/* панель действий */}
                                 <div className="flex flex-col items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                                     {doc.status === "ready" && (
                                         <button
@@ -423,7 +423,7 @@ export default function DocumentList({
                 )}
             </div>
 
-            {/* Custom Delete Confirmation Modal */}
+            {/* модальное окно удаления */}
             {confirmDeleteDoc && (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center"

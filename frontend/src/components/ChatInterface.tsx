@@ -98,7 +98,7 @@ export default function ChatInterface({
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.detail || "Failed to send message");
+                throw new Error(errorData.detail || "Ошибка отправки сообщения");
             }
 
             const newSessionId = response.headers.get("X-Session-Id");
@@ -113,7 +113,7 @@ export default function ChatInterface({
                 try {
                     setSources(JSON.parse(sourcesHeader));
                 } catch {
-                    console.error("Failed to parse sources");
+                    console.error("Ошибка парсинга источников");
                 }
             }
 
@@ -145,7 +145,7 @@ export default function ChatInterface({
                                 if (data.status === "thinking") {
                                     currentMessages = currentMessages.map((msg) =>
                                         msg.id === assistantMessage.id
-                                            ? { ...msg, content: "Analyzing documents..." }
+                                            ? { ...msg, content: "Анализирую документы..." }
                                             : msg
                                     );
                                     onMessagesChange(currentMessages, updatedSessionId);
@@ -154,7 +154,7 @@ export default function ChatInterface({
                                 if (data.content) {
                                     currentMessages = currentMessages.map((msg) =>
                                         msg.id === assistantMessage.id
-                                            ? { ...msg, content: msg.content === "Analyzing documents..." ? data.content : msg.content + data.content }
+                                            ? { ...msg, content: msg.content === "Анализирую документы..." ? data.content : msg.content + data.content }
                                             : msg
                                     );
                                     onMessagesChange(currentMessages, updatedSessionId);
@@ -173,7 +173,7 @@ export default function ChatInterface({
                                                 session_id: updatedSessionId,
                                                 content: finalMessage.content
                                             })
-                                        }).catch(err => console.error("Failed to save response:", err));
+                                        }).catch(err => console.error("Ошибка сохранения ответа:", err));
                                     }
                                 }
                             } catch (e) {
@@ -185,7 +185,7 @@ export default function ChatInterface({
                 }
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Something went wrong");
+            setError(err instanceof Error ? err.message : "Произошла ошибка");
             const last = messages[messages.length - 1];
             if (last?.role === "assistant" && !last.content) {
                 onMessagesChange(messages.slice(0, -1), currentSessionId);
@@ -256,7 +256,7 @@ export default function ChatInterface({
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* Sources */}
+            {/* источники */}
             {sources.length > 0 && (
                 <div className="px-5 py-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
                     <p className="text-xs mb-2 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
@@ -273,7 +273,7 @@ export default function ChatInterface({
                 </div>
             )}
 
-            {/* Input */}
+            {/* ввод */}
             <div className="p-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
                 <form onSubmit={handleSubmit} className="flex gap-3">
                     <input
@@ -301,12 +301,12 @@ export default function ChatInterface({
         </div>
     );
 
-    // Global mode
+    // глобальный режим
     if (isGlobalMode) {
         return renderMessages("Задайте вопрос по всем документам...");
     }
 
-    // No document selected
+    // документ не выбран
     if (!document) {
         return (
             <div className="empty-state h-full">
@@ -327,7 +327,7 @@ export default function ChatInterface({
         );
     }
 
-    // Processing
+    // обработка
     if (document.status !== "ready") {
         return (
             <div className="empty-state h-full">
@@ -351,6 +351,16 @@ export default function ChatInterface({
                 </p>
                 <div className="w-52">
                     <div className="progress-bar">
+                        <div className="progress-fill" style={{ width: '66%' }} />
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return renderMessages("Задайте вопрос по документу...");
+}
+Name="progress-bar">
                         <div className="progress-fill" style={{ width: '66%' }} />
                     </div>
                 </div>

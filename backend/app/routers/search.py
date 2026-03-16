@@ -13,26 +13,23 @@ router = APIRouter(prefix="/api/search", tags=["Search"])
 
 @router.get("", response_model=SearchResponse)
 async def global_search(
-    q: str = Query(..., description="Search query"),
-    top_k: int = Query(10, description="Number of results to return", ge=1, le=50),
-    document_id: Optional[int] = Query(None, description="Filter by document ID"),
+    q: str = Query(..., description="Поисковой запрос"),
+    top_k: int = Query(10, description="Количество результатов", ge=1, le=50),
+    document_id: Optional[int] = Query(None, description="Фильтр по ID документа"),
     db: Session = Depends(get_db)
 ):
-    """
-    Search across all documents in the vector database using a text query.
-    Returns matching chunks with their context headers, scores, and parent document info.
-    """
+    # глобальный поиск по всем документам
     if not q.strip():
-        raise HTTPException(status_code=400, detail="Query cannot be empty.")
+        raise HTTPException(status_code=400, detail="Запрос не может быть пустым")
         
     try:
-        # Generate embedding for the query
-        logger.info(f"Search request: q='{q[:50]}', top_k={top_k}, document_id={document_id}")
+        # генерация эмбеддинга для запроса
+        logger.info(f"Запрос поиска: q='{q[:50]}', top_k={top_k}, document_id={document_id}")
         query_embedding = await rag_pipeline.generate_embedding(q)
         if not query_embedding:
-            raise HTTPException(status_code=500, detail="Failed to generate query embedding.")
+            raise HTTPException(status_code=500, detail="Ошибка генерации эмбеддинга")
             
-        # Search chunks using retrieval service
+        # поиск чанков через retrieval service
         chunks = retrieval_service.search_all_documents(
             db=db,
             query_embedding=query_embedding,
@@ -62,5 +59,5 @@ async def global_search(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Global search failed: {e}")
-        raise HTTPException(status_code=500, detail="Failed to perform search. Check logs.")
+        logger.error(f"Ошибка поиска: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка выполнения поиска")

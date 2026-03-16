@@ -30,6 +30,8 @@ def upgrade() -> None:
             error_message TEXT,
             oauth_token TEXT,
             yandex_user VARCHAR(255),
+            file_hashes TEXT,
+            synced_doc_ids TEXT,
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
         )
@@ -51,9 +53,20 @@ def upgrade() -> None:
             ) THEN
                 ALTER TABLE sync_sources ADD COLUMN yandex_user VARCHAR(255);
             END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'sync_sources' AND column_name = 'file_hashes'
+            ) THEN
+                ALTER TABLE sync_sources ADD COLUMN file_hashes TEXT;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'sync_sources' AND column_name = 'synced_doc_ids'
+            ) THEN
+                ALTER TABLE sync_sources ADD COLUMN synced_doc_ids TEXT;
+            END IF;
         END $$;
     """)
-
 
 def downgrade() -> None:
     op.drop_table('sync_sources')

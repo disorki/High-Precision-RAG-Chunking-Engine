@@ -20,13 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Ensure pgvector extension exists
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    
-    # Create document_status enum type (if not exists)
-    # SQLAlchemy Enum creates the type automatically, but we handle it explicitly
     document_status = sa.Enum('processing', 'ready', 'failed', name='documentstatus')
-    document_status.create(op.get_bind(), checkfirst=True)
     
     # Users table
     op.create_table(
@@ -60,13 +54,16 @@ def upgrade() -> None:
         'document_chunks',
         sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column('document_id', sa.Integer(), sa.ForeignKey('documents.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('chunk_uuid', sa.String(36), nullable=False, server_default=''),
         sa.Column('text_content', sa.Text(), nullable=False),
-        sa.Column('embedding', Vector(384), nullable=False),
+        sa.Column('embedding', Vector(768), nullable=False),
         sa.Column('page_number', sa.Integer(), nullable=True),
         sa.Column('chunk_index', sa.Integer(), nullable=False),
+        sa.Column('context_header', sa.Text(), nullable=True),
         sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
     )
     op.create_index('ix_document_chunks_id', 'document_chunks', ['id'])
+    op.create_index('ix_document_chunks_chunk_uuid', 'document_chunks', ['chunk_uuid'])
     
     # Chat sessions table
     op.create_table(

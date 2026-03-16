@@ -17,27 +17,26 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
-# System prompt template for RAG
-SYSTEM_PROMPT = """You are a precise document analyst. Your task is to answer the user's question STRICTLY based on the provided context.
+# шаблон системного промпта
+SYSTEM_PROMPT = """Ты — точный аналитик документов. Отвечай СТРОГО на основе контекста ниже.
 
-CONTEXT FROM DOCUMENTS:
+КОНТЕКСТ ИЗ ДОКУМЕНТОВ:
 {context}
 
-CRITICAL RULES:
-1. Answer ONLY using the provided context above. Do NOT add information from your training data.
-2. Provide DETAILED and COMPREHENSIVE answers. Include ALL relevant information found in the context.
-3. Structure your answer clearly using markdown: bullet points, numbered lists, tables, or short paragraphs.
-4. For TABLES in the context: reproduce them as markdown tables with exact values.
-5. ALWAYS cite the source page after each fact: [{page_label} X].
-6. If context is partial, state what you found and clearly note what is missing.
-7. If NO relevant info exists in the context, say exactly: "{no_info_message}"
-8. Do NOT repeat the question. Go straight to the answer.
-9. If the user asks to compare or list items, format as a markdown table.
-10. {language_instruction}"""
+## АБСОЛЮТНЫЕ ПРАВИЛА
+1. Используй ТОЛЬКО информацию из КОНТЕКСТА выше. ЗАПРЕЩЕНО добавлять данные из своих знаний.
+2. ЦИТИРУЙ конкретные фрагменты из контекста. Каждый факт подтверждай цитатой.
+3. После каждого утверждения указывай источник: [{page_label} X].
+4. Давай РАЗВЁРНУТЫЙ ответ — включай ВСЮ релевантную информацию из контекста.
+5. Таблицы из контекста воспроизводи как Markdown-таблицы с точными значениями.
+6. Если информация неполная — укажи что найдено и чего не хватает.
+7. Если информации НЕТ в контексте, ответь: "{no_info_message}"
+8. НЕ повторяй вопрос. Начинай сразу с ответа.
+9. {language_instruction}"""
 
 
 def get_localized_prompt(user_language: str) -> dict:
-    """Get localized prompt elements based on user language."""
+    # локализация элементов промпта
     if user_language.lower() == "russian":
         return {
             "page_label": "Стр.",
@@ -58,99 +57,8 @@ def get_localized_prompt(user_language: str) -> dict:
         }
 
 
-async def generate_stream(
-    prompt: str,
-    context: str,
-    chat_history: list = None,
-    user_language: str = "English"
-):
-    """
-    Single-step generation: respond directly in the user's language.
-    Yields Server-Sent Events formatted chunks.
-    """
-    localized = get_localized_prompt(user_language)
-    system_prompt = SYSTEM_PROMPT.format(
-        context=context,
-        page_label=localized["page_label"],
-        no_info_message=localized["no_info_message"],
-        language_instruction=localized["language_instruction"]
-    )
-    
-    # Build messages with history
-    messages = [{"role": "system", "content": system_prompt}]
-    
-    if chat_history:
-        for msg in chat_history[-10:]:
-            messages.append({"role": msg["role"], "content": msg["content"]})
-    
-    messages.append({"role": "user", "content": prompt})
-    
-    try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST",
-                f"{settings.ollama_base_url}/api/chat",
-                json={
-                    "model": settings.chat_model,
-                    "messages": messages,
-                    "stream": True,
-                    "options": {
-                        "num_ctx": settings.chat_num_ctx,
-                        "temperature": settings.chat_temperature,
-                        "top_k": settings.chat_top_k,
-                        "top_p": settings.chat_top_p,
-                    }
-                }
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if line:
-                        try:
-                            data = json.loads(line)
-                            if "message" in data and "content" in data["message"]:
-                                content = data["message"]["content"]
-                                yield f"data: {json.dumps({'content': content})}\n\n"
-                            if data.get("done", False):
-                                break
-                        except json.JSONDecodeError:
-                            continue
-            
-            yield f"data: {json.dumps({'done': True})}\n\n"
-                            
-    except httpx.HTTPError as e:
-        logger.error(f"Ollama API error: {e}")
-        yield f"data: {json.dumps({'error': 'Failed to generate response'})}\n\n"
-    except Exception as e:
-        logger.error(f"Stream generation error: {e}")
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
-
-def detect_language(text: str) -> str:
-    """Detect the language of the user's message based on character analysis."""
-    # Count Cyrillic characters
-    cyrillic_count = sum(1 for c in text if '\u0400' <= c <= '\u04FF')
-    latin_count = sum(1 for c in text if 'a' <= c.lower() <= 'z')
-    
-    # Chinese/Japanese/Korean
-    cjk_count = sum(1 for c in text if '\u4e00' <= c <= '\u9fff' or '\u3040' <= c <= '\u30ff')
-    
-    total = cyrillic_count + latin_count + cjk_count
-    if total == 0:
-        return "English"
-    
-    if cyrillic_count / max(total, 1) > 0.3:
-        return "Russian"
-    if cjk_count / max(total, 1) > 0.3:
-        return "Chinese"
-    
-    return "English"
-
-
 def get_client_ip(request: Request) -> str:
-    """
-    Get real client IP, respecting X-Forwarded-For for proxies/Docker.
-    Falls back to direct client host.
-    """
+    # получение реального ip клиента
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         return forwarded.split(",")[0].strip()
@@ -158,76 +66,37 @@ def get_client_ip(request: Request) -> str:
         return request.client.host
     return "unknown"
 
+async def stream_direct_rag(prompt: str, session_id: str, document_id: int = None):
+    # прямой rag: поиск -> контекст -> llm
+    from app.routers.agent_chat import _search_documents, _build_context, _call_llm
+    from app.database import SessionLocal
 
-
-async def rewrite_query(original_query: str, chat_history: list = None) -> str:
-    """
-    Rewrite conversational query into a precise search query for better retrieval.
-    Falls back to original query on any error.
-    """
-    history_context = ""
-    if chat_history:
-        recent = chat_history[-4:]
-        history_context = "\n".join(
-            f"{m['role']}: {m['content'][:200]}" for m in recent
-        )
-    
-    prompt = f"""Rewrite the following user question into a clear, specific search query 
-for finding information in a technical document.
-Keep the same language as the original question.
-Output ONLY the rewritten query, nothing else.
-
-Chat context (last messages):
-{history_context if history_context else 'none'}
-
-User question: {original_query}
-
-Rewritten query:"""
-    
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{settings.ollama_base_url}/api/generate",
-                json={
-                    "model": settings.chat_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.1,
-                        "num_ctx": 2048
-                    }
-                }
-            )
-            response.raise_for_status()
-            rewritten = response.json().get("response", "").strip()
-            if rewritten and len(rewritten) < 500:
-                logger.info(f"Query rewritten: '{original_query[:80]}' -> '{rewritten[:80]}'")
-                return rewritten
-            return original_query
+        yield f"data: {json.dumps({'status': 'thinking'})}\n\n"
+
+        db = SessionLocal()
+        try:
+            chunks = await _search_documents(db, prompt, document_id)
+
+            if not chunks:
+                yield f"data: {json.dumps({'content': 'В загруженных документах нет информации по данному вопросу.'})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+                return
+
+            context = _build_context(chunks)
+            answer = await _call_llm(context, prompt)
+
+            if not answer:
+                answer = "Не удалось сгенерировать ответ."
+
+            yield f"data: {json.dumps({'content': answer})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        finally:
+            db.close()
+
     except Exception as e:
-        logger.warning(f"Query rewriting failed, using original: {e}")
-        return original_query
-
-
-def prepare_chat_history(messages: list, max_total_chars: int = None) -> list:
-    """
-    Keep recent messages, truncating old assistant responses to save context budget.
-    """
-    max_total_chars = max_total_chars or settings.history_max_chars
-    result = []
-    total = 0
-    for msg in reversed(messages[-10:]):
-        content = msg["content"]
-        # Truncate long assistant responses to save context
-        if msg["role"] == "assistant" and len(content) > 500:
-            content = content[:500] + "..."
-        if total + len(content) > max_total_chars:
-            break
-        result.insert(0, {"role": msg["role"], "content": content})
-        total += len(content)
-    return result
-
-
+        logger.error(f"Ошибка прямого RAG: {e}")
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
 
 
@@ -237,110 +106,36 @@ async def chat(
     req: Request,
     db: Session = Depends(get_db)
 ):
-    """
-    Chat endpoint with RAG context retrieval and streaming response.
-    Sessions are identified by client IP + document_id (no auth required).
-    
-    1. Capture client IP address
-    2. Generate embedding for user query
-    3. Retrieve relevant chunks via cosine similarity
-    4. Build context from retrieved chunks
-    5. Find or create session by IP + document
-    6. Stream response from Ollama with context
-    """
-    client_ip = get_client_ip(req)
+    # эндпоинт чата
+    client_ip = req.client.host if req.client else "unknown"
     user_agent = req.headers.get("User-Agent", "")[:512]
     
-    logger.info(f"Chat request from IP: {client_ip}")
+    logger.info(f"Запрос в чат с IP: {client_ip}")
     
-    # Validate document exists and is ready (if provided)
+    # проверка документа
     if request.document_id:
         document = db.query(Document).filter(Document.id == request.document_id).first()
-        
         if not document:
-            raise HTTPException(status_code=404, detail="Document not found")
-        
+            raise HTTPException(status_code=404, detail="Документ не найден")
         if document.status != DocumentStatus.READY:
             raise HTTPException(
                 status_code=400,
-                detail=f"Document is not ready. Current status: {document.status.value}"
+                detail=f"Документ не готов. Статус: {document.status.value}"
             )
-    # If not provided, this is a GLOBAL chat. We proceed normally.
     
     try:
-        # Build early chat history for query rewriting
-        early_history = []
-        if request.session_id:
-            existing_msgs = db.query(ChatMessage).filter(
-                ChatMessage.session_id == request.session_id
-            ).order_by(ChatMessage.created_at).all()
-            early_history = [{"role": m.role, "content": m.content} for m in existing_msgs]
-        
-        # Rewrite query for better retrieval
-        search_query = await rewrite_query(request.message, early_history)
-        
-        # Generate embedding for rewritten search query
-        query_embedding = await rag_pipeline.generate_embedding(search_query)
-        
-        if not query_embedding:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to generate query embedding"
-            )
-        
-        # Retrieve similar chunks
-        if request.document_id:
-            similar_chunks = retrieval_service.search_similar_chunks(
-                db=db,
-                document_id=request.document_id,
-                query_embedding=query_embedding,
-                query_text=request.message,
-                top_k=settings.top_k_chunks
-            )
-        else:
-            similar_chunks = retrieval_service.search_all_documents(
-                db=db,
-                query_embedding=query_embedding,
-                query_text=request.message,
-                top_k=settings.top_k_chunks
-            )
-        
-        # Debug: log retrieved chunks (only visible at DEBUG level)
-        logger.debug(f"Retrieved {len(similar_chunks)} chunks for query: '{request.message[:80]}'")
-        for i, chunk in enumerate(similar_chunks):
-            doc_str = f", doc={chunk.get('document_filename')}" if not request.document_id else ""
-            logger.debug(f"  Chunk {i+1}: page={chunk.get('page_number', '?')}{doc_str}, score={chunk.get('score', 0):.4f}")
-        
-        # Build context from chunks
-        context = retrieval_service.build_context(similar_chunks)
-        
-        # Log context length
-        logger.info(f"Built context length: {len(context)} chars")
-        
-        if not context:
-            context = "No relevant context found in the document."
-        
-        # Get or create chat session by IP + document
         session = None
-        
-        # If session_id is provided, try to find it
         if request.session_id:
-            session = db.query(ChatSession).filter(
-                ChatSession.id == request.session_id
-            ).first()
-        
-        # If no session found, look for existing session by IP + document
+            session = db.query(ChatSession).filter(ChatSession.id == request.session_id).first()
+            
         if not session:
-            # Need strict equality for nullable values, so we use `is_` 
             query = db.query(ChatSession).filter(ChatSession.ip_address == client_ip)
             if request.document_id:
                 query = query.filter(ChatSession.document_id == request.document_id)
             else:
                 query = query.filter(ChatSession.document_id.is_(None))
-                
             session = query.order_by(ChatSession.updated_at.desc()).first()
-        
-        # If still no session, create a new one
+            
         if not session:
             session = ChatSession(
                 document_id=request.document_id,
@@ -351,16 +146,11 @@ async def chat(
             db.add(session)
             db.commit()
             db.refresh(session)
-            logger.info(f"Created new session {session.id} for IP {client_ip}")
         else:
-            # Update session metadata on reuse
             session.updated_at = datetime.utcnow()
-            if user_agent:
-                session.user_agent = user_agent
             db.commit()
-            logger.info(f"Reusing session {session.id} for IP {client_ip}")
-        
-        # Save user message with IP
+            
+        # сохранение сообщения пользователя
         user_message = ChatMessage(
             session_id=session.id,
             role="user",
@@ -370,37 +160,22 @@ async def chat(
         db.add(user_message)
         db.commit()
         
-        # Prepare sources for response header
-        sources = retrieval_service.format_sources(similar_chunks)
-        
-        # Get chat history for memory (compressed to save context budget)
-        existing_messages = db.query(ChatMessage).filter(
-            ChatMessage.session_id == session.id
-        ).order_by(ChatMessage.created_at).all()
-        
-        raw_history = [{"role": m.role, "content": m.content} for m in existing_messages[:-1]]
-        chat_history = prepare_chat_history(raw_history)
-        
-        # Detect user language for two-step translation
-        user_language = detect_language(request.message)
-        logger.info(f"Detected user language: {user_language}")
-        
-        # Return streaming response
+        # потоковый ответ с использованием прямого RAG
         return StreamingResponse(
-            generate_stream(request.message, context, chat_history, user_language),
+            stream_direct_rag(request.message, str(session.id), request.document_id),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Session-Id": str(session.id),
-                "X-Sources": json.dumps(sources)
+                "X-Sources": json.dumps([])
             }
         )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Chat error: {e}")
+        logger.error(f"Ошибка чата: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -410,7 +185,7 @@ async def list_sessions(
     ip_address: str = None,
     db: Session = Depends(get_db)
 ):
-    """List chat sessions, optionally filtered by document and/or IP address."""
+    # получение списка сессий чата
     query = db.query(ChatSession)
     
     if document_id:
@@ -428,11 +203,11 @@ async def get_session(
     session_id: int,
     db: Session = Depends(get_db)
 ):
-    """Get a chat session with all messages."""
+    # получение сессии со всеми сообщениями
     session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     
     if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
     
     return session
 
@@ -443,7 +218,7 @@ async def get_my_sessions(
     document_id: int = None,
     db: Session = Depends(get_db)
 ):
-    """Get all chat sessions for the current user (identified by IP)."""
+    # сессии текущего пользователя по ip
     client_ip = get_client_ip(req)
     
     query = db.query(ChatSession).filter(ChatSession.ip_address == client_ip)
@@ -463,15 +238,15 @@ async def save_response(
     req: Request,
     db: Session = Depends(get_db)
 ):
-    """Save assistant response after streaming completes."""
+    # сохранение ответа ассистента после завершения стриминга
     client_ip = get_client_ip(req)
     
     session = db.query(ChatSession).filter(ChatSession.id == request.session_id).first()
     
     if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
     
-    # Save assistant message with IP
+    # сохранение сообщения
     assistant_message = ChatMessage(
         session_id=session.id,
         role="assistant",
@@ -480,7 +255,7 @@ async def save_response(
     )
     db.add(assistant_message)
     
-    # Update session timestamp
+    # обновление времени сессии
     session.updated_at = datetime.utcnow()
     db.commit()
     
