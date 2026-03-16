@@ -4,7 +4,7 @@ import { useState, useEffect, MouseEvent } from "react";
 import {
     Database, Upload, FileText, Globe, Bot, Plus,
     CheckCircle, Clock, AlertCircle, Trash2, RefreshCw,
-    MessageSquare, Sparkles
+    MessageSquare, Sparkles, Eye
 } from "lucide-react";
 import AgentChat from "@/components/AgentChat";
 import UploadZone from "@/components/UploadZone";
@@ -52,7 +52,7 @@ export default function Home() {
 
     // опрос статуса обработки
     useEffect(() => {
-        const proc = documents.filter(d => d.status === "processing");
+        const proc = documents.filter((d: Document) => d.status === "processing");
         if (!proc.length) return;
         const t = setInterval(async () => {
             for (const doc of proc) {
@@ -60,7 +60,7 @@ export default function Home() {
                     const r = await fetch(`/api/documents/${doc.id}`);
                     if (r.ok) {
                         const upd: Document = await r.json();
-                        setDocuments(prev => prev.map(d => d.id === upd.id ? upd : d));
+                        setDocuments((prev: Document[]) => prev.map((d: Document) => d.id === upd.id ? upd : d));
                         if (selectedDoc?.id === upd.id) setSelectedDoc(upd);
                     }
                 } catch { }
@@ -70,25 +70,37 @@ export default function Home() {
     }, [documents, selectedDoc]);
 
     const handleUploaded = (doc: Document) => {
-        setDocuments(prev => [doc, ...prev]);
+        setDocuments((prev: Document[]) => [doc, ...prev]);
         setSelectedDoc(doc);
         setShowUpload(false);
     };
 
     const handleReady = (docId: number) => {
-        setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status: "ready" as const } : d));
+        setDocuments((prev: Document[]) => prev.map((d: Document) => d.id === docId ? { ...d, status: "ready" as const } : d));
     };
 
-    const deleteDoc = async (docId: number, e: React.MouseEvent) => {
+    const deleteDoc = async (docId: number, e: MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
+        
+        const doc = documents.find(d => d.id === docId);
+        if (!doc) return;
+        
+        if (!window.confirm(`Вы уверены, что хотите удалить файл "${doc.original_filename}"? Это удалит всю связанную историю.`)) {
+            return;
+        }
+
         try {
-            await fetch(`/api/documents/${docId}`, { method: "DELETE" });
-            setDocuments(prev => prev.filter(d => d.id !== docId));
-            if (selectedDoc?.id === docId) {
-                setSelectedDoc(null);
-                setChatMode("global");
+            const r = await fetch(`/api/documents/${docId}`, { method: "DELETE" });
+            if (r.ok) {
+                setDocuments((prev: Document[]) => prev.filter((d: Document) => d.id !== docId));
+                if (selectedDoc?.id === docId) {
+                    setSelectedDoc(null);
+                    setChatMode("global");
+                }
             }
-        } catch { }
+        } catch (error) {
+            console.error("Failed to delete document:", error);
+        }
     };
 
     const selectDoc = (doc: Document) => {
@@ -96,7 +108,7 @@ export default function Home() {
         setChatMode("document");
     };
 
-    const ready = documents.filter(d => d.status === "ready");
+    const ready = documents.filter((d: Document) => d.status === "ready");
 
     return (
         <div className="app-shell">
@@ -116,7 +128,7 @@ export default function Home() {
                 {/* кнопка загрузки */}
                 <div style={{ padding: "12px 14px 0" }}>
                     <button
-                        onClick={() => setShowUpload(v => !v)}
+                        onClick={() => setShowUpload((v: boolean) => !v)}
                         style={{
                             width: "100%", display: "flex", alignItems: "center", gap: 8,
                             padding: "9px 12px", borderRadius: 10,
@@ -159,7 +171,7 @@ export default function Home() {
                     {documents.map(doc => (
                         <div
                             key={doc.id}
-                            className={`doc-row ${selectedDoc?.id === doc.id && chatMode === "document" ? "active" : ""}`}
+                            className={`doc-row group ${selectedDoc?.id === doc.id && chatMode === "document" ? "active" : ""}`}
                             onClick={() => selectDoc(doc)}
                         >
                             <div className="doc-icon">
@@ -190,22 +202,35 @@ export default function Home() {
                                     )}
                                 </div>
                             </div>
-                            <button
-                                className="icon-btn"
-                                onClick={(e) => deleteDoc(doc.id, e)}
-                                style={{ opacity: 0 }}
-                                onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
-                                onMouseLeave={e => (e.currentTarget.style.opacity = "0")}
-                            >
-                                <Trash2 style={{ width: 12, height: 12 }} />
-                            </button>
+                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {doc.status === "ready" && (
+                                    <button
+                                        className="icon-btn"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedDoc(doc);
+                                            setShowPdf(true);
+                                        }}
+                                        title="Просмотр"
+                                    >
+                                        <Eye style={{ width: 14, height: 14 }} />
+                                    </button>
+                                )}
+                                <button
+                                    className="icon-btn"
+                                    onClick={(e) => deleteDoc(doc.id, e)}
+                                    title="Удалить"
+                                >
+                                    <Trash2 style={{ width: 14, height: 14 }} />
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>
 
                 {/* синхронизация внизу */}
                 <div className="sidebar-bottom">
-                    <div className="sync-row" onClick={() => setShowSync(v => !v)}>
+                    <div className="sync-row" onClick={() => setShowSync((v: boolean) => !v)}>
                         <RefreshCw style={{ width: 14, height: 14 }} />
                         <span>Яндекс.Диск</span>
                         <Plus style={{ width: 12, height: 12, marginLeft: "auto" }} />

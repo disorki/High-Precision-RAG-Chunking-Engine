@@ -1,211 +1,209 @@
 "use client";
 
-import { useState } from "react";
-import { X, Download, Loader2, FileText, FileSpreadsheet, FileType } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { X, Download, Loader2, AlertCircle, FileText, FileSpreadsheet } from "lucide-react";
 
+// Библиотеки будут импортированы динамически в момент использования
 interface FileViewerProps {
     documentId: number;
     filename: string;
     onClose: () => void;
 }
 
-function getFileExtension(filename: string): string {
-    return filename.toLowerCase().split(".").pop() || "";
-}
-
-export default function FileViewer({
-    documentId,
-    filename,
-    onClose,
-}: FileViewerProps) {
+export default function FileViewer({ documentId, filename, onClose }: FileViewerProps) {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-
+    const [excelData, setExcelData] = useState<{ name: string, data: any[][] }[]>([]);
+    const [activeSheet, setActiveSheet] = useState(0);
+    const [mounted, setMounted] = useState(false);
+    
+    const wordContainerRef = useRef<HTMLDivElement>(null);
     const fileUrl = `/api/documents/${documentId}/file`;
-    const ext = getFileExtension(filename);
+    const ext = filename.toLowerCase().split(".").pop() || "";
+    
     const isPdf = ext === "pdf";
     const isTxt = ext === "txt";
+    const isWord = ["docx", "doc"].includes(ext);
+    const isExcel = ["xlsx", "xls", "csv"].includes(ext);
 
-    const handleIframeLoad = () => {
-        setIsLoading(false);
-    };
+    useEffect(() => {
+        setMounted(true);
+        const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+        window.addEventListener("keydown", handleEsc);
+        
+        if (isWord || isExcel) {
+            loadFile();
+        } else {
+            setIsLoading(false);
+        }
 
-    const handleIframeError = () => {
-        setError("Не удалось загрузить файл для предпросмотра.");
-        setIsLoading(false);
-    };
+        return () => window.removeEventListener("keydown", handleEsc);
+    }, []);
 
-    const handleDownload = () => {
-        const a = document.createElement("a");
-        a.href = fileUrl;
-        a.download = filename;
-        a.click();
-    };
+    const loadFile = async () => {
+        try {
+            setIsLoading(true);
+            const response = await fetch(fileUrl);
+            if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+            const arrayBuffer = await response.arrayBuffer();
 
-    const getFileIcon = () => {
-        switch (ext) {
-            case "xlsx":
-                return <FileSpreadsheet className="w-16 h-16 text-emerald-400" />;
-            case "docx":
-                return <FileText className="w-16 h-16 text-blue-400" />;
-            case "txt":
-                return <FileType className="w-16 h-16 text-amber-400" />;
-            default:
-                return <FileText className="w-16 h-16 text-violet-400" />;
+            if (isWord) {
+                // Стандартный динамический импорт. Теперь, когда вы установили библиотеку в докер,
+                // Next.js сможет найти её и собрать бандл.
+                let docxModule;
+                try {
+                    docxModule = await import("docx-preview");
+                } catch (e) {
+                    throw new Error("Библиотека 'docx-preview' не найдена. Если вы только что её установили, попробуйте перезагрузить Docker контейнер.");
+                }
+
+                setTimeout(async () => {
+                    if (wordContainerRef.current) {
+                        try {
+                            wordContainerRef.current.innerHTML = "";
+                            await docxModule.renderAsync(arrayBuffer, wordContainerRef.current, undefined, {
+                                inWrapper: false,
+                                ignoreWidth: false,
+                                ignoreHeight: false,
+                            });
+                        } catch (err) {
+                            setError("Ошибка отрисовки Word-файла");
+                        } finally {
+                            setIsLoading(false);
+                        }
+                    }
+                }, 200);
+            } else if (isExcel) {
+                // Стандартный динамический импорт
+                let XLSXModule;
+                try {
+                    XLSXModule = await import("xlsx");
+                } catch (e) {
+                    throw new Error("Библиотека 'xlsx' не найдена. Если вы только что её установили, попробуйте перезагрузить Docker контейнер.");
+                }
+
+                try {
+                    const workbook = XLSXModule.read(arrayBuffer, { type: 'array' });
+                    const sheets = workbook.SheetNames.map((name: string) => ({
+                        name,
+                        data: XLSXModule.utils.sheet_to_json(workbook.Sheets[name], { header: 1 }) as any[][]
+                    }));
+                    setExcelData(sheets);
+                    setIsLoading(false);
+                } catch (err) {
+                    setError("Ошибка парсинга Excel");
+                    setIsLoading(false);
+                }
+            }
+        } catch (err: any) {
+            setError(err.message || "Ошибка загрузки");
+            setIsLoading(false);
         }
     };
 
-    const getFileTypeLabel = () => {
-        switch (ext) {
-            case "pdf": return "PDF";
-            case "docx": return "Word";
-            case "xlsx": return "Excel";
-            case "txt": return "Text";
-            default: return "Документ";
-        }
-    };
+    if (!mounted) return null;
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-            <div className="relative w-full max-w-4xl h-[90vh] bg-dark-900 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-                style={{ backgroundColor: 'var(--bg-primary, #0a0a0f)' }}>
-                {/* заголовок */}
-                <div className="flex items-center justify-between p-4 border-b border-dark-700"
-                    style={{ borderColor: 'var(--border-subtle, rgba(255,255,255,0.06))' }}>
-                    <div className="flex items-center gap-3 min-w-0">
-                        <span className="px-2 py-0.5 rounded text-xs font-medium"
-                            style={{
-                                backgroundColor: ext === 'xlsx' ? 'rgba(16,185,129,0.15)' :
-                                    ext === 'docx' ? 'rgba(59,130,246,0.15)' :
-                                        ext === 'txt' ? 'rgba(245,158,11,0.15)' :
-                                            'rgba(139,92,246,0.15)',
-                                color: ext === 'xlsx' ? '#34d399' :
-                                    ext === 'docx' ? '#60a5fa' :
-                                        ext === 'txt' ? '#fbbf24' :
-                                            '#a78bfa'
-                            }}>
-                            {getFileTypeLabel()}
-                        </span>
-                        <h3 className="text-lg font-medium truncate max-w-md"
-                            style={{ color: 'var(--text-primary, #e4e4e7)' }}>
-                            {filename}
-                        </h3>
+    const modal = (
+        <div style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            zIndex: 999999,
+            backgroundColor: 'rgba(0,0,0,0.95)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            fontFamily: 'sans-serif'
+        }}>
+            <div style={{
+                position: 'relative',
+                width: '100vw',
+                maxWidth: '1300px',
+                height: '92vh',
+                backgroundColor: '#0a0a0f',
+                borderRadius: '20px',
+                border: '1px solid #333',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                color: '#fff',
+                boxShadow: '0 0 50px rgba(0,0,0,0.5)'
+            }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 25px', borderBottom: '1px solid #222', background: '#111' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <div style={{ color: '#7C6EF5', fontWeight: 'bold' }}>ПРОСМОТР ДОКУМЕНТА</div>
+                        <div style={{ fontSize: '14px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filename}</div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={handleDownload}
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors"
-                            style={{
-                                backgroundColor: 'rgba(255,255,255,0.05)',
-                                color: 'var(--text-secondary, #a1a1aa)'
-                            }}
-                            title="Скачать файл"
-                        >
-                            <Download className="w-4 h-4" />
-                            Скачать
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <button onClick={() => window.open(fileUrl)} style={{ background: '#222', border: '1px solid #333', color: '#fff', padding: '8px 15px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <Download size={16} /> Скачать
                         </button>
-                        <button
-                            onClick={onClose}
-                            className="p-2 rounded-lg transition-colors"
-                            style={{ color: 'var(--text-tertiary, #71717a)' }}
-                        >
-                            <X className="w-5 h-5" />
+                        <button onClick={onClose} style={{ background: '#7C6EF5', border: 'none', color: '#fff', padding: '8px 15px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+                            Закрыть
                         </button>
                     </div>
                 </div>
 
-                {/* содержимое */}
-                <div className="flex-1 overflow-auto flex items-center justify-center"
-                    style={{ backgroundColor: 'rgba(0,0,0,0.3)' }}>
-
+                {/* Body */}
+                <div style={{ flex: 1, overflow: 'auto', backgroundColor: isWord ? '#fff' : '#0a0a0f', position: 'relative' }}>
                     {isLoading && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center z-10"
-                            style={{ backgroundColor: 'var(--bg-primary, #0a0a0f)' }}>
-                            <Loader2 className="w-10 h-10 text-violet-500 animate-spin mb-4" />
-                            <p style={{ color: 'var(--text-tertiary, #71717a)' }}>
-                                Загрузка {getFileTypeLabel()}...
-                            </p>
+                        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0a0a0f', zIndex: 10 }}>
+                            <Loader2 size={40} style={{ animation: 'spin 1s linear infinite', color: '#7C6EF5' }} />
+                            <p style={{ marginTop: '20px', color: '#666' }}>Загрузка...</p>
                         </div>
                     )}
-
+                    
                     {error && (
-                        <div className="flex flex-col items-center justify-center py-12">
-                            <p className="text-red-400 mb-4">{error}</p>
-                            <button
-                                onClick={handleDownload}
-                                className="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors"
-                                style={{
-                                    backgroundColor: 'rgba(255,255,255,0.05)',
-                                    color: 'var(--text-secondary, #a1a1aa)'
-                                }}
-                            >
-                                <Download className="w-4 h-4" />
-                                Скачать файл
-                            </button>
+                        <div style={{ padding: '50px', textAlign: 'center' }}>
+                            <AlertCircle size={48} color="#ff4444" />
+                            <h3 style={{ margin: '20px 0' }}>Не удалось загрузить файл</h3>
+                            <p style={{ color: '#666' }}>{error}</p>
                         </div>
                     )}
 
-                    {isPdf ? (
-                        /* PDF — просмотр в iframe */
-                        <iframe
-                            src={fileUrl}
-                            className="w-full h-full border-0"
-                            onLoad={handleIframeLoad}
-                            onError={handleIframeError}
-                            title={filename}
-                        />
-                    ) : isTxt ? (
-                        /* TXT — просмотр в iframe */
-                        <iframe
-                            src={fileUrl}
-                            className="w-full h-full border-0"
-                            style={{ backgroundColor: '#1a1a2e', color: '#e4e4e7' }}
-                            onLoad={handleIframeLoad}
-                            onError={handleIframeError}
-                            title={filename}
-                        />
-                    ) : (
-                        /* DOCX/XLSX — сообщение о скачивании */
-                        !error && (
-                            <div className="flex flex-col items-center justify-center py-16 px-8 text-center"
-                                onLoad={() => setIsLoading(false)}
-                                ref={(el) => { if (el) setIsLoading(false); }}>
-                                <div className="mb-6 p-6 rounded-2xl"
-                                    style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
-                                    {getFileIcon()}
+                    {!error && (
+                        <>
+                            {isWord && <div ref={wordContainerRef} style={{ padding: '40px', maxWidth: '800px', margin: '0 auto', color: '#000' }} />}
+                            {isExcel && excelData[activeSheet] && (
+                                <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                                    <div style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', color: '#ccc', fontSize: '12px' }}>
+                                            <tbody>
+                                                {excelData[activeSheet].data.map((row, i) => (
+                                                    <tr key={i} style={{ borderBottom: '1px solid #222' }}>
+                                                        {row.map((cell, j) => (
+                                                            <td key={j} style={{ padding: '8px', borderRight: '1px solid #222', whiteSpace: 'nowrap' }}>{cell?.toString() || ''}</td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '10px', padding: '10px', background: '#111', overflowX: 'auto', borderTop: '1px solid #222' }}>
+                                        {excelData.map((sheet, i) => (
+                                            <button key={i} onClick={() => setActiveSheet(i)} style={{ padding: '5px 15px', borderRadius: '5px', background: activeSheet === i ? '#7C6EF5' : '#222', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                                                {sheet.name}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
-                                <h4 className="text-xl font-semibold mb-2"
-                                    style={{ color: 'var(--text-primary, #e4e4e7)' }}>
-                                    {filename}
-                                </h4>
-                                <p className="mb-6 max-w-sm"
-                                    style={{ color: 'var(--text-tertiary, #71717a)' }}>
-                                    Предпросмотр {getFileTypeLabel()} в браузере не поддерживается.
-                                    Скачайте файл чтобы открыть его.
-                                </p>
-                                <button
-                                    onClick={handleDownload}
-                                    className="flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all"
-                                    style={{
-                                        background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
-                                        color: 'white',
-                                        boxShadow: '0 4px 15px rgba(139,92,246,0.3)'
-                                    }}
-                                >
-                                    <Download className="w-5 h-5" />
-                                    Скачать {getFileTypeLabel()}
-                                </button>
-                            </div>
-                        )
+                            )}
+                            {(isPdf || isTxt) && (
+                                <iframe src={fileUrl} style={{ width: '100%', height: '100%', border: 'none', filter: isTxt ? 'invert(0.9) hue-rotate(180deg)' : 'none' }} />
+                            )}
+                        </>
                     )}
                 </div>
             </div>
-
-            {/* закрытие при клике снаружи */}
-            <div
-                className="absolute inset-0 -z-10"
-                onClick={onClose}
-            />
+            
+            <style dangerouslySetInnerHTML={{ __html: `
+                @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+                .word-preview-container .docx-wrapper { padding: 0 !important; background: transparent !important; }
+            `}} />
         </div>
     );
+
+    return createPortal(modal, document.body);
 }

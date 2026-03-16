@@ -5,6 +5,7 @@ import tempfile
 import shutil
 import logging
 import mimetypes
+from urllib.parse import quote
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -284,12 +285,15 @@ async def get_document_file(
     file_extension = os.path.splitext(document.original_filename)[1].lower()
     content_type = MIME_TYPES.get(file_extension, 'application/octet-stream')
 
+    # Кодируем имя файла для заголовков (RFC 5987) для поддержки кириллицы
+    encoded_filename = quote(document.original_filename)
+
     return FileResponse(
         path=document.file_path,
         media_type=content_type,
         filename=document.original_filename,
         headers={
-            "Content-Disposition": f"inline; filename=\"{document.original_filename}\""
+            "Content-Disposition": f"inline; filename=\"{encoded_filename}\"; filename*=UTF-8''{encoded_filename}"
         }
     )
 
