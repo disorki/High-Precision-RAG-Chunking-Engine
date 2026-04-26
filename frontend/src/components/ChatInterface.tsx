@@ -360,13 +360,3 @@ export default function ChatInterface({
 
     return renderMessages("Задайте вопрос по документу...");
 }
-Name="progress-bar">
-                        <div className="progress-fill" style={{ width: '66%' }} />
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    return renderMessages("Задайте вопрос по документу...");
-}
