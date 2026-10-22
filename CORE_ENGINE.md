@@ -86,10 +86,13 @@ These services ensure the most relevant data is found for the user's query.
 
 ---
 
-## 6. Agent Logic (`agent_chat.py`)
+## 6. Agent Logic (`app/agent/`)
 
-The Agent follows a **Native RAG** approach:
-1.  **Query Analysis**: LLM determines needed data (global search vs. document-specific).
-2.  **Reasoning**: Forms an internal search plan.
-3.  **Synthesis**: Processes chunks, analyzes them, and generates an answer with strict page references (`[Page X]`).
-4.  **Safety**: If no data is found, the agent must report this instead of hallucinating.
+The agent uses Ollama's native tool calling (`/api/chat` with the `tools` parameter):
+1.  **Loop**: the model receives the question and the schemas of 7 tools (`search_all`, `search_document`, `list_documents`, `get_document_info`, `summarize`, `compare_documents`, `extract_facts`) and decides what to call. Results are sent back as `tool` messages and the loop repeats until a final answer.
+2.  **Resilience**: tool errors and malformed arguments are passed back to the model as text so it can fix the call. After `AGENT_MAX_ITERATIONS` iterations the agent answers from the evidence collected so far.
+3.  **Structured output**: `extract_facts` gets JSON matching a schema through the `format` parameter.
+4.  **Response**: text with page references, deduplicated sources and the trace of tool calls (`steps`).
+5.  **Safety**: if no data is found, the agent must report this instead of hallucinating.
+
+Direct RAG without the agent (multi-query search and a single LLM call) powers the regular chat and lives in `app/services/direct_rag.py`.

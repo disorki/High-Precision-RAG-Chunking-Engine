@@ -1,121 +1,93 @@
 # High-Precision RAG Chunking Engine
 
+[![CI](https://github.com/disorki/High-Precision-RAG-Chunking-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/disorki/High-Precision-RAG-Chunking-Engine/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Python: 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
-[![Next.js](https://img.shields.io/badge/Next.js-14-black.svg)](https://nextjs.org/)
-[![Docker](https://img.shields.io/badge/Docker-Enabled-blue.svg)](https://www.docker.com/)
 
 > *Read this documentation in [English](README.md)*
 
-Современная высокоточная система поиска и анализа документов на базе архитектуры **RAG (Retrieval-Augmented Generation)**. Проект включает **встроенного Native RAG агента** и обеспечивает абсолютную конфиденциальность благодаря **полностью локальной обработке данных** через **Ollama** (флагманская модель Qwen 2.5).
+RAG-система (Retrieval-Augmented Generation) для поиска и ответов на вопросы по своим документам. Всё работает локально: эмбеддинги и генерация идут через Ollama (Qwen 2.5, nomic-embed-text), векторы хранятся в PostgreSQL с pgvector, данные не покидают машину.
 
-Система спроектирована для глубокого аналитического извлечения фактов, синтеза информации и работы со сложными форматами: текстами, таблицами и отсканированными документами.
+Подробное описание ядра: [CORE_ENGINE.ru.md](CORE_ENGINE.ru.md).
 
-> [!IMPORTANT]
-> **Подробная документация ядра (Core Engine):**
-> - **[Техническое описание (Русский)](CORE_ENGINE.ru.md)**
-> - **[Technical Specifications (English)](CORE_ENGINE.md)**
+## Возможности
 
----
+- **Загрузка документов.** PDF, DOCX (таблицы переводятся в Markdown-подобный текст с сохранением структуры), XLSX (каждый лист — отдельная таблица), TXT с определением кодировки, архивы ZIP и RAR. Обработка идёт в фоне с прогрессом по этапам.
+- **Чанкинг и эмбеддинги.** Рекурсивное разбиение с перекрытием, необязательные контекстные заголовки чанков от LLM, параллельная генерация эмбеддингов с ограничением конкурентности и ретраями.
+- **Двухэтапный поиск.** Косинусная близость в pgvector с порогом отсечения, затем необязательный реранкинг кандидатов cross-encoder моделью, экспортированной в ONNX для ускорения на CPU.
+- **Чат со стримингом.** Ответы по найденным фрагментам со ссылками на страницы, стриминг по SSE, история сессий.
+- **Агент с tool calling.** Модель сама решает, какие инструменты вызвать и в каком порядке, через нативный tool calling в Ollama (`/api/chat` с `tools`), повторяет вызовы, пока не соберёт достаточно данных, и отвечает со ссылками на источники. Семь инструментов:
 
-## Ключевые возможности
+  | Инструмент | Что делает |
+  |------------|------------|
+  | `search_all` | Семантический поиск по всем документам |
+  | `search_document` | Семантический поиск внутри одного документа |
+  | `list_documents` | Готовые документы с id и числом страниц |
+  | `get_document_info` | Метаданные документа: страницы, чанки, статус, дата загрузки |
+  | `summarize` | Краткое содержание документа, при желании с фокусом на теме |
+  | `compare_documents` | Фрагменты нескольких документов по одному аспекту для сравнения |
+  | `extract_facts` | Точные факты (даты, суммы, сроки) в JSON через structured output (`format` = JSON schema) |
 
-*   **Автономный ИИ-Агент (Native RAG реализация)**
-    *   Оптимизированная логика ReAct (Reasoning and Acting), работающая напрямую на бэкенде.
-    *   Динамическое формирование контекста для решения сложных многошаговых запросов пользователя.
-*   **Продвинутый RAG-инструментарий (7 специализированных модулей)**
-    1.  `search_all`: Глобальный семантический векторный поиск по всей базе знаний.
-    2.  `search_document`: Точечный контекстный поиск внутри конкретного документа.
-    3.  `list_documents`: Моментальное получение списка проиндексированных файлов.
-    4.  `get_document_info`: Глубокий анализ метаданных и структуры файла.
-    5.  `summarize`: ИИ-суммаризация и абстрагирование массивных текстовых корпусов.
-    6.  `compare_documents`: Кросс-документный фактчекинг и сравнительный анализ.
-    7.  `extract_facts`: Прецизионное извлечение конкретных точек данных и структурирование ответов.
-*   **Бесшовная облачная интеграция**
-    *   Нативная интеграция с Яндекс.Диском через защищенный протокол OAuth 2.0.
-    *   Автоматическая синхронизация и пакетный импорт файлов и директорий напрямую из облака.
-*   **Интеллектуальный пайплайн обработки**
-    *   Нативная поддержка: `PDF` (включая полнотекстовое OCR распознавание сканов через Tesseract/EasyOCR), `DOCX`, `XLSX` и `TXT`.
-    *   Автоматическая распаковка и индексирование архивов (`ZIP`, `RAR`) с поддержкой пакетной загрузки.
-*   **Премиальный UX/UI интерфейс**
-    *   Построен на базе Next.js 14 и React.
-    *   Современная эстетика: Flat Design, Glassmorphism, Dark Mode и иконография Lucide.
-*   **Локальная среда Zero-Trust**
-    *   Стопроцентное on-premise выполнение.
-    *   Все данные, документы и LLM-инференс (через Ollama) остаются на вашей машине. Исключены любые утечки во внешние API (OpenAI, Anthropic и т.д.).
+  Ошибки инструментов и некорректные аргументы возвращаются модели, чтобы она исправила вызов; при достижении лимита итераций агент отвечает по уже собранным данным. В ответе возвращается трасса вызовов инструментов.
+- **Синхронизация с Яндекс.Диском.** OAuth 2.0, фоновая синхронизация по расписанию, новые и изменённые файлы сразу уходят в пайплайн.
 
----
+## Архитектура
 
-## Архитектура системы
-
-Проект разделен на 4 отказоустойчивых микросервиса, оркестрируемых через Docker:
-
-1.  **Frontend Модуль (`:3000`)**
-    *   *Стек:* Next.js App Router, React, Tailwind CSS.
-    *   *Роль:* Предоставляет интерактивный интерфейс загрузки, панель управления Яндекс.Диском и встроенный клиент чата с Агентом.
-2.  **Backend Ядро (`:8000`)**
-    *   *Стек:* FastAPI (Python), LangChain.
-    *   *Роль:* Управляет пайплайном загрузки — парсинг, продвинутый чанкинг (Semantic + Sliding Window), генерация эмбеддингов, векторная маршрутизация (pgvector) и предоставление REST API адаптеров.
-3.  **СУБД и Слой Инференса**
-    *   `PostgreSQL + pgvector` (`:5432`): Персистентное хранилище чанков и их векторных представлений.
-    *   `Ollama` (`:11434`): Локальный движок инференса, хостящий `qwen2.5:7b` для процессов генерации текста и эмбеддингов.
-
----
-
-## Руководство по развертыванию
-
-### Требования к среде
-*   [Docker Engine](https://docs.docker.com/get-docker/) и Docker Compose.
-*   **ОЗУ:** Минимум 16 ГБ (Крайне рекомендуется 32 ГБ для стабильной работы локальных LLM).
-*   **GPU:** NVIDIA GPU с установленным [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (Настоятельно рекомендуется для аппаратного ускорения Ollama).
-
-### 1. Инициализация контейнеров
-
-Склонируйте репозиторий и запустите сборку Docker окружения:
-```bash
-git clone https://github.com/your-username/high-precision-rag.git
-cd high-precision-rag
-docker-compose up --build -d
+```mermaid
+flowchart LR
+    UI[Next.js frontend] -->|REST, SSE| API[FastAPI backend]
+    YD[Яндекс.Диск] -->|OAuth sync| API
+    API --> W[фоновая обработка документов]
+    W -->|чанки + векторы| PG[(PostgreSQL + pgvector)]
+    API -->|векторный поиск| PG
+    API -->|эмбеддинги, чат, tool calling| OL[Ollama]
+    API -.->|реранкинг| RR[cross-encoder, ONNX]
 ```
 
-### 2. Подготовка локальной LLM (Ollama)
+| Компонент | Стек |
+|-----------|------|
+| Бэкенд | Python, FastAPI, SQLAlchemy, Alembic, httpx, сплиттеры LangChain, APScheduler |
+| Поиск | PostgreSQL + pgvector, cross-encoder из sentence-transformers, ONNX Runtime |
+| LLM | Ollama: `qwen2.5` для генерации и агента, `nomic-embed-text` для эмбеддингов |
+| Фронтенд | Next.js 14, React, Tailwind CSS |
+| Инфраструктура | Docker Compose, GitHub Actions |
 
-Дождитесь инициализации сервисов и загрузите целевую модель в локальный инстанс Ollama:
+## Запуск
+
+Нужны Docker и Docker Compose, от 16 ГБ оперативной памяти. Для Ollama крайне желательна видеокарта NVIDIA с NVIDIA Container Toolkit.
+
 ```bash
+git clone https://github.com/disorki/High-Precision-RAG-Chunking-Engine.git
+cd High-Precision-RAG-Chunking-Engine
+docker compose up --build -d
+
 docker exec -it rag-ollama ollama pull qwen2.5:7b
+docker exec -it rag-ollama ollama pull qwen2.5:14b   # модель агента (AGENT_MODEL)
+docker exec -it rag-ollama ollama pull nomic-embed-text
 ```
-*(Примечание: Вы можете загрузить другие модели эмбеддингов, например `mxbai-embed-large`, обновив конфигурацию Backend).*
 
-### 3. Использование платформы
-Перейдите по адресу **[http://localhost:3000](http://localhost:3000)** для доступа к рабочему пространству.
-*   **Вкладка "Обзор":** Загружайте файлы локально или авторизуйте Яндекс.Диск для автоматического импорта.
-*   **Вкладки анализа ("Документ", "Все документы"):** Начните интеллектуальное взаимодействие с документами через чат с Агентом.
+Откройте `http://localhost:3000`, загрузите документы или подключите Яндекс.Диск и задавайте вопросы во вкладках «Документ» и «Все документы».
 
----
+Запрос к агенту напрямую:
 
-## Локальная разработка
+```bash
+curl -X POST http://localhost:8000/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Сравни условия оплаты в двух договорах"}'
+```
 
-Инструкция для запуска сервисов вне Docker (для дебага и контрибьюции):
+## Локальная разработка и тесты
 
-**Backend Сервис:**
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate  # Для Windows: venv\Scripts\activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --reload
+
+python -m pytest -q tests
 ```
 
-**Frontend Клиент:**
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
----
+Тесты проверяют цикл агента на сценарной LLM (выполнение инструментов, передачу результатов обратно, обработку ошибок, лимит итераций, дедупликацию источников) и соответствие каждой объявленной схемы инструмента его обработчику.
 
 ## Лицензия
 
-Проект распространяется под лицензией **MIT License**.
+MIT.

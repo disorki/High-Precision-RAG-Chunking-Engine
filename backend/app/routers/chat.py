@@ -68,7 +68,7 @@ def get_client_ip(request: Request) -> str:
 
 async def stream_direct_rag(prompt: str, session_id: str, document_id: int = None):
     # прямой rag: поиск -> контекст -> llm
-    from app.routers.agent_chat import _search_documents, _build_context, _call_llm
+    from app.services.direct_rag import _search_documents, _build_context, _call_llm
     from app.database import SessionLocal
 
     try:

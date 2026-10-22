@@ -1,121 +1,93 @@
 # High-Precision RAG Chunking Engine
 
+[![CI](https://github.com/disorki/High-Precision-RAG-Chunking-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/disorki/High-Precision-RAG-Chunking-Engine/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Python: 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
-[![Next.js](https://img.shields.io/badge/Next.js-14-black.svg)](https://nextjs.org/)
-[![Docker](https://img.shields.io/badge/Docker-Enabled-blue.svg)](https://www.docker.com/)
 
-> *Read this documentation in [Russian (Русский)](README.ru.md)*
+> *Read this documentation in [Russian](README.ru.md)*
 
-A modern, high-precision Retrieval-Augmented Generation (RAG) system engineered for deep analytical document processing. The system features a **built-in Native RAG Agent** and ensures complete data privacy through **fully local processing** using **Ollama** (powered by Qwen 2.5).
+A RAG (Retrieval-Augmented Generation) system for searching and answering questions over your own documents. Everything runs locally: embeddings and generation go through Ollama (Qwen 2.5, nomic-embed-text), vectors live in PostgreSQL with pgvector, and no data leaves the machine.
 
-Designed for complex data extraction, synthesis, and analysis across texts, tables, and scanned document formats.
+Detailed engine documentation: [CORE_ENGINE.md](CORE_ENGINE.md).
 
-> [!IMPORTANT]
-> **Detailed Core Engine Documentation:**
-> - **[English Technical Specs](CORE_ENGINE.md)**
-> - **[Russian Technical Specs (Русский)](CORE_ENGINE.ru.md)**
+## Features
 
----
+- **Document ingestion.** PDF, DOCX (tables are converted to Markdown-like text to keep their structure), XLSX (one table per sheet), TXT with encoding detection, and ZIP / RAR archives. Processing runs in the background with stage-by-stage progress.
+- **Chunking and embeddings.** Recursive splitting with overlap, optional LLM-generated context headers per chunk, parallel embedding generation with bounded concurrency and retries.
+- **Two-stage retrieval.** Cosine search in pgvector with a similarity threshold, then optional reranking of candidates with a cross-encoder exported to ONNX for faster CPU inference.
+- **Chat with streaming.** Answers grounded in retrieved chunks with page references, streamed to the client over SSE, with chat session history.
+- **Tool-calling agent.** The model decides which tools to call and in what order through Ollama's native tool calling (`/api/chat` with `tools`), loops until it has enough evidence, then answers with citations. Seven tools:
 
-## Enterprise-Grade Features
+  | Tool | What it does |
+  |------|--------------|
+  | `search_all` | Semantic search across all documents |
+  | `search_document` | Semantic search inside one document |
+  | `list_documents` | Ready documents with ids and page counts |
+  | `get_document_info` | Document metadata: pages, chunks, status, upload date |
+  | `summarize` | Summary of a document, optionally focused on a topic |
+  | `compare_documents` | Evidence from several documents on one aspect, for comparison |
+  | `extract_facts` | Exact facts (dates, amounts, terms) as JSON via structured output (`format` = JSON schema) |
 
-*   **Autonomous AI Agent (Native RAG Implementation)**
-    *   Optimized ReAct (Reasoning and Acting) logic running directly on the backend.
-    *   Dynamic context construction to handle complex, multi-step user queries.
-*   **Comprehensive RAG Toolchain (7 Specialized Modules)**
-    1.  `search_all`: Global semantic vector search across the entire document repository.
-    2.  `search_document`: Targeted contextual search within a specified document.
-    3.  `list_documents`: Real-time retrieval of the loaded document index.
-    4.  `get_document_info`: Comprehensive temporal and structural metadata analysis.
-    5.  `summarize`: Advanced AI abstraction and summarization of massive text corpora.
-    6.  `compare_documents`: Cross-document fact-checking and comparative analysis.
-    7.  `extract_facts`: Precision data point extraction and structural mapping.
-*   **Seamless Cloud Integration**
-    *   Native Yandex.Disk integration via secure OAuth 2.0.
-    *   Automated synchronization and batch importation of files and directories.
-*   **Advanced Processing Pipeline**
-    *   Supports: `PDF` (with full OCR via Tesseract/EasyOCR), `DOCX`, `XLSX`, and `TXT`.
-    *   Automated extraction and indexing of ZIP and RAR archives with batch processing capabilities.
-*   **Premium UI/UX Ecosystem**
-    *   Built on Next.js 14 and React.
-    *   Modern aesthetic: Glassmorphism, Dark Mode, and Lucide iconography.
-*   **Zero-Trust Local Environment**
-    *   100% on-premise execution.
-    *   All telemetry, document data, and LLM inferences (via Ollama) remain strictly local. No exposure to external vendor APIs (OpenAI, Anthropic, etc.).
+  Tool errors and malformed arguments are returned to the model so it can correct the call; an iteration cap forces a final answer from the evidence collected so far. The response includes the trace of tool calls.
+- **Yandex.Disk sync.** OAuth 2.0, background synchronization on a schedule, new and changed files go straight into the pipeline.
 
----
+## Architecture
 
-## System Architecture
-
-The application is distributed across three robust microservices, seamlessly orchestrated via Docker:
-
-1.  **Frontend Module (`:3000`)**
-    *   *Tech Stack:* Next.js App Router, React, Tailwind CSS.
-    *   *Role:* Delivers the interactive upload interface, spatial cloud management (Yandex.Disk), and the real-time embedded Agent Chat client.
-2.  **Backend Core (`:8000`)**
-    *   *Tech Stack:* FastAPI (Python), LangChain, unstructured.
-    *   *Role:* Orchestrates the ingestion pipeline—parsing, advanced chunking (Semantic + Sliding Window overlay), embedding generation, vector database routing, and exposing RESTful API adapters for Flowise tool consumption.
-3. **Database & Inference Layer**
-    *   `PostgreSQL + pgvector` (`:5432`): Persistent storage for document chunks and high-dimensional vector embeddings.
-    *   `Ollama` (`:11434`): Local inference engine securely hosting `qwen2.5:7b` for generation and embeddings.
-
----
-
-## Deployment Guide
-
-### Prerequisites
-*   [Docker Engine](https://docs.docker.com/get-docker/) & Docker Compose.
-*   **Memory:** Minimum 16 GB RAM (32 GB highly recommended for optimal local LLM performance).
-*   **Compute:** NVIDIA GPU configured with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (Strongly recommended for GPU-accelerated Ollama inference).
-
-### 1. Initialize Containers
-
-Clone the repository and ignite the Docker environment:
-```bash
-git clone https://github.com/your-username/high-precision-rag.git
-cd high-precision-rag
-docker-compose up --build -d
+```mermaid
+flowchart LR
+    UI[Next.js frontend] -->|REST, SSE| API[FastAPI backend]
+    YD[Yandex.Disk] -->|OAuth sync| API
+    API --> W[background document processor]
+    W -->|chunks + vectors| PG[(PostgreSQL + pgvector)]
+    API -->|vector search| PG
+    API -->|embeddings, chat, tool calling| OL[Ollama]
+    API -.->|optional rerank| RR[cross-encoder, ONNX]
 ```
 
-### 2. Provision the LLM (Ollama)
+| Component | Stack |
+|-----------|-------|
+| Backend | Python, FastAPI, SQLAlchemy, Alembic, httpx, LangChain text splitters, APScheduler |
+| Retrieval | PostgreSQL + pgvector, sentence-transformers cross-encoder, ONNX Runtime |
+| LLM | Ollama: `qwen2.5` for generation and the agent, `nomic-embed-text` for embeddings |
+| Frontend | Next.js 14, React, Tailwind CSS |
+| Infrastructure | Docker Compose, GitHub Actions |
 
-Wait for initialization, then pull the target model into the local Ollama instance:
+## Running
+
+Requirements: Docker and Docker Compose, 16 GB RAM or more. An NVIDIA GPU with the NVIDIA Container Toolkit is strongly recommended for Ollama.
+
 ```bash
+git clone https://github.com/disorki/High-Precision-RAG-Chunking-Engine.git
+cd High-Precision-RAG-Chunking-Engine
+docker compose up --build -d
+
 docker exec -it rag-ollama ollama pull qwen2.5:7b
+docker exec -it rag-ollama ollama pull qwen2.5:14b   # agent model (AGENT_MODEL)
+docker exec -it rag-ollama ollama pull nomic-embed-text
 ```
-*(Note: You may pull alternative embedding models like `mxbai-embed-large` and update the backend configuration accordingly).*
 
-### 3. Access the Platform
-Navigate to **[http://localhost:3000](http://localhost:3000)** to access the operational dashboard.
-*   **Overview Tab:** Ingest documents via local drag-and-drop or bind your Yandex.Disk for automated cloud retrieval.
-*   **Document Analysis Tabs:** Initiate deep querying and analysis with the AI Agent in the "Document" or "All documents" workspaces.
+Open `http://localhost:3000`, upload documents or connect Yandex.Disk, and ask questions in the "Document" or "All documents" tabs.
 
----
+Ask the agent directly:
 
-## Local Development Setup
+```bash
+curl -X POST http://localhost:8000/api/agent/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Compare the payment terms in the two contracts"}'
+```
 
-For granular debugging or contributing to the codebase without Docker encapsulation:
+## Local development and tests
 
-**Backend Service:**
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --reload
+
+python -m pytest -q tests
 ```
 
-**Frontend Client:**
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
----
+The tests cover the agent loop (tool execution, feeding results back, error handling, iteration cap, source deduplication) with a scripted LLM, and check that every declared tool schema matches its handler.
 
 ## License
 
-Distributed under the **MIT License**. See `LICENSE` for more information.
+MIT.

@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [version-3.0]
+  pull_request:
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies (without the reranker ML stack)
+        run: |
+          grep -v -E '^(torch|sentence-transformers|transformers|optimum)' requirements.txt > requirements-ci.txt
+          pip install -r requirements-ci.txt pytest
+      - name: Test
+        run: python -m pytest -q tests
